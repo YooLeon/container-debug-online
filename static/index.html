@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Docker Terminal</title>
+    <link rel="stylesheet" href="https://unpkg.com/xterm/css/xterm.css" />
+    <script src="https://unpkg.com/xterm/lib/xterm.js"></script>
+    <script src="https://unpkg.com/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            background-color: #1e1e1e;
+        }
+
+        .tab-container {
+            background-color: #2d2d2d;
+            padding: 10px;
+            display: flex;
+            gap: 5px;
+            border-bottom: 2px solid #1e1e1e;
+        }
+
+        .tab-button {
+            padding: 8px 16px;
+            border: none;
+            background-color: #3d3d3d;
+            color: #999;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            position: relative;
+            border: 1px solid transparent;
+        }
+
+        .tab-button.active {
+            background-color: #4caf50 !important;
+            color: #fff !important;
+            border: 1px solid #66bb6a !important;
+            box-shadow: 0 2px 4px rgba(76, 175, 80, 0.2);
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #666;
+        }
+
+        .status-indicator.connected {
+            background-color: #4CAF50;
+            box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+        }
+
+        .status-indicator.disconnected {
+            background-color: #e74c3c;
+        }
+
+        #terminal-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background-color: #1e1e1e;
+            min-height: 0;
+        }
+
+        .terminal-tab {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            padding: 10px;
+        }
+
+        .terminal-tab.active {
+            display: block;
+        }
+
+        .terminal-tab .xterm {
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="tab-container" id="tab-container"></div>
+    <div id="terminal-container"></div>
+
+    <script>
+        class TerminalManager {
+            constructor() {
+                this.terminals = new Map();
+                this.activeTerminal = null;
+                this.terminalContainer = document.getElementById('terminal-container');
+                this.tabContainer = document.getElementById('tab-container');
+                
+                window.addEventListener('resize', () => this.handleResize());
+                this.loadContainers();
+            }
+
+            async loadContainers() {
+                try {
+                    const response = await fetch('/containers');
+                    const containers = await response.json();
+                    
+                    containers.forEach(container => {
+                        this.createTerminal(container);
+                    });
+                    
+                    if (containers.length > 0) {
+                        this.activateTerminal(containers[0].id);
+                    }
+                } catch (error) {
+                    console.error('Failed to load containers:', error);
+                }
+            }
+
+            createTerminal(container) {
+                const terminalDiv = document.createElement('div');
+                terminalDiv.className = 'terminal-tab';
+                terminalDiv.id = `terminal-${container.id}`;
+                this.terminalContainer.appendChild(terminalDiv);
+
+                const term = new Terminal({
+                    cursorBlink: true,
+                    fontSize: 14,
+                    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                    scrollback: 1000,
+                    theme: {
+                        background: '#1e1e1e',
+                        foreground: '#d4d4d4',
+                        cursor: '#ffffff'
+                    }
+                });
+
+                const fitAddon = new FitAddon.FitAddon();
+                term.loadAddon(fitAddon);
+
+                term.open(terminalDiv);
+                fitAddon.fit();
+
+                const ws = this.connectWebSocket(container.id, term);
+
+                this.terminals.set(container.id, {
+                    term,
+                    ws,
+                    div: terminalDiv,
+                    fitAddon,
+                    container,
+                    connected: false
+                });
+
+                const tabButton = document.createElement('button');
+                tabButton.className = 'tab-button';
+                tabButton.setAttribute('data-container-id', container.id);
+                tabButton.innerHTML = `
+                    <span class="status-indicator"></span>
+                    <div class="container-info">
+                        <span class="container-name">${container.name}</span>
+                        <span class="container-id">${container.id}</span>
+                    </div>
+                `;
+                
+                tabButton.addEventListener('click', () => {
+                    this.activateTerminal(container.id);
+                });
+                
+                this.tabContainer.appendChild(tabButton);
+            }
+
+            connectWebSocket(containerId, term) {
+                const ws = new WebSocket(`ws://${window.location.host}/ws?container=${containerId}`);
+                
+                ws.onopen = () => {
+                    console.log(`WebSocket connected for ${containerId}`);
+                    this.updateTabStatus(containerId, true);
+                    const terminal = this.terminals.get(containerId);
+                    if (terminal) {
+                        terminal.connected = true;
+                    }
+                };
+
+                ws.onmessage = (event) => {
+                    term.write(event.data);
+                };
+
+                term.onData(data => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(data);
+                    }
+                });
+
+                ws.onclose = () => {
+                    console.log(`WebSocket closed for ${containerId}`);
+                    this.updateTabStatus(containerId, false);
+                    const terminal = this.terminals.get(containerId);
+                    if (terminal) {
+                        terminal.connected = false;
+                        term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error(`WebSocket error for ${containerId}:`, error);
+                    this.updateTabStatus(containerId, false);
+                };
+
+                return ws;
+            }
+
+            activateTerminal(containerId) {
+                const terminal = this.terminals.get(containerId);
+                if (!terminal) return;
+
+                this.terminals.forEach((t) => {
+                    t.div.classList.remove('active');
+                });
+
+                document.querySelectorAll('.tab-button').forEach(button => {
+                    button.classList.remove('active');
+                });
+
+                terminal.div.classList.add('active');
+                
+                const button = document.querySelector(`.tab-button[data-container-id="${containerId}"]`);
+                if (button) {
+                    button.classList.add('active');
+                }
+
+                this.activeTerminal = terminal;
+                terminal.term.focus();
+                terminal.fitAddon.fit();
+            }
+
+            updateTabStatus(containerId, isConnected) {
+                const terminal = this.terminals.get(containerId);
+                if (terminal) {
+                    terminal.connected = isConnected;
+                }
+
+                const button = document.querySelector(`.tab-button[data-container-id="${containerId}"]`);
+                if (button) {
+                    const indicator = button.querySelector('.status-indicator');
+                    indicator.classList.remove('connected', 'disconnected');
+                    indicator.classList.add(isConnected ? 'connected' : 'disconnected');
+                }
+            }
+
+            handleResize() {
+                if (this.activeTerminal) {
+                    this.activeTerminal.fitAddon.fit();
+                }
+            }
+        }
+
+        // 创建终端管理器实例
+        const manager = new TerminalManager();
+    </script>
+</body>
+</html> 

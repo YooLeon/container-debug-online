@@ -1,0 +1,41 @@
+version: '3.8'
+services:
+  stable_diffusion_1: # 第一个服务
+    image: harbor.suanleme.cn/leon/comfyui:sd-trubo
+    labels:
+      # 第一个转发端口
+      - suanleme_0.http.port=8188
+      - suanleme_0.http.prefix=p8188
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  stable_diffusion_2: # 第一个服务
+    image: harbor.suanleme.cn/leon/comfyui:sd-trubo
+    labels:
+      # 第一个转发端口
+      - suanleme_0.http.port=8188
+      - suanleme_0.http.prefix=p8188
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  stable_diffusion_3: # 第一个服务
+    image: harbor.suanleme.cn/leon/comfyui:sd-trubo
+    labels:
+      # 第一个转发端口
+      - suanleme_0.http.port=8188
+      - suanleme_0.http.prefix=p8188
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
