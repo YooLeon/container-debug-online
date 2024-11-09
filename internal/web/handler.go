@@ -13,7 +13,6 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/gorilla/websocket"
-	"golang.org/x/net/context"
 )
 
 var upgrader = websocket.Upgrader{
@@ -40,14 +39,18 @@ type Terminal struct {
 	dockerMonitor *docker.Monitor
 	containerID   string
 	done          chan struct{}
+	execID        string
+	stdinPipe     io.Writer
+	sizeChan      chan struct{}
 }
 
-func NewTerminal(ws *websocket.Conn, monitor *docker.Monitor, containerID string) *Terminal {
+func NewTerminal(ws *websocket.Conn, dockerMonitor *docker.Monitor, containerID string) *Terminal {
 	return &Terminal{
 		ws:            ws,
-		dockerMonitor: monitor,
+		dockerMonitor: dockerMonitor,
 		containerID:   containerID,
 		done:          make(chan struct{}),
+		sizeChan:      make(chan struct{}),
 	}
 }
 
@@ -83,6 +86,33 @@ func (h *Handler) getValidContainerID(inputID string) (string, error) {
 	return "", fmt.Errorf("no valid container found for input: %s", inputID)
 }
 
+// Message 定义消息结构
+type Message struct {
+	Type string `json:"type"`
+	Cols uint   `json:"cols"`
+	Rows uint   `json:"rows"`
+}
+
+// handleMessage 处理WebSocket消息
+func (t *Terminal) handleMessage(message []byte) error {
+	// 尝试解析为JSON消息
+	var msg Message
+	if err := json.Unmarshal(message, &msg); err == nil && msg.Type == "resize" {
+		// 是resize消息，处理终端大小调整
+		if err := t.dockerMonitor.ResizeExecTTY(t.execID, msg.Rows, msg.Cols); err != nil {
+			return fmt.Errorf("failed to resize terminal: %v", err)
+		}
+		return nil
+	}
+
+	// 不是JSON消息或不是resize消息，直接写入到容器
+	_, err := t.stdinPipe.Write(message)
+	if err != nil {
+		return fmt.Errorf("failed to write to container: %v", err)
+	}
+	return nil
+}
+
 func (t *Terminal) Start() {
 	defer func() {
 		t.ws.Close()
@@ -96,20 +126,22 @@ func (t *Terminal) Start() {
 		AttachStderr: true,
 		Tty:          true,
 		Cmd:          []string{"/bin/bash"},
+		Env: []string{
+			"TERM=xterm-256color",
+		},
 	}
 
-	ctx := context.Background()
-
 	// 创建执行实例
-	exec, err := t.dockerMonitor.Client().ContainerExecCreate(ctx, t.containerID, execConfig)
+	exec, err := t.dockerMonitor.Client().ContainerExecCreate(t.dockerMonitor.Context(), t.containerID, execConfig)
 	if err != nil {
 		log.Printf("Error creating exec: %v", err)
 		t.writeError(fmt.Sprintf("Failed to create exec: %v", err))
 		return
 	}
+	t.execID = exec.ID
 
 	// 附加到执行实例
-	resp, err := t.dockerMonitor.Client().ContainerExecAttach(ctx, exec.ID, types.ExecStartCheck{
+	resp, err := t.dockerMonitor.Client().ContainerExecAttach(t.dockerMonitor.Context(), exec.ID, types.ExecStartCheck{
 		Detach: false,
 		Tty:    true,
 	})
@@ -120,17 +152,13 @@ func (t *Terminal) Start() {
 	}
 	defer resp.Close()
 
+	t.stdinPipe = resp.Conn
+
 	// 创建错误通道
 	errChan := make(chan error, 2)
 
-	// 处理输入
+	// 处理输入的消息
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				errChan <- fmt.Errorf("panic in input handler: %v", r)
-			}
-		}()
-
 		for {
 			select {
 			case <-t.done:
@@ -142,7 +170,23 @@ func (t *Terminal) Start() {
 					return
 				}
 
-				_, err = resp.Conn.Write(message)
+				// 检查是否是resize消息
+				if len(message) > 0 && message[0] == '{' {
+					var msg struct {
+						Type string `json:"type"`
+						Cols uint   `json:"cols"`
+						Rows uint   `json:"rows"`
+					}
+					if err := json.Unmarshal(message, &msg); err == nil && msg.Type == "resize" {
+						if err := t.dockerMonitor.ResizeExecTTY(t.execID, msg.Rows, msg.Cols); err != nil {
+							log.Printf("Error resizing terminal: %v", err)
+						}
+						continue
+					}
+				}
+
+				// 普通输入消息，直接写入到容器
+				_, err = t.stdinPipe.Write(message)
 				if err != nil {
 					errChan <- fmt.Errorf("error writing to container: %v", err)
 					return
@@ -153,12 +197,6 @@ func (t *Terminal) Start() {
 
 	// 处理输出
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				errChan <- fmt.Errorf("panic in output handler: %v", r)
-			}
-		}()
-
 		buffer := make([]byte, 1024)
 		for {
 			select {
@@ -174,6 +212,7 @@ func (t *Terminal) Start() {
 				}
 
 				if n > 0 {
+					// 直接发送到WebSocket，不做额外处理
 					err = t.ws.WriteMessage(websocket.TextMessage, buffer[:n])
 					if err != nil {
 						errChan <- fmt.Errorf("error writing to websocket: %v", err)

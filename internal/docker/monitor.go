@@ -46,6 +46,14 @@ func (m *Monitor) Context() context.Context {
 	return m.ctx
 }
 
+// ResizeExecTTY 调整终端大小
+func (m *Monitor) ResizeExecTTY(execID string, height, width uint) error {
+	return m.client.ContainerExecResize(m.ctx, execID, types.ResizeOptions{
+		Height: height,
+		Width:  width,
+	})
+}
+
 // CheckContainerStatus 检查容器状态
 // 参数可以是容器ID（完整或短ID）或服务名
 func (m *Monitor) CheckContainerStatus(idOrName string) (string, error) {

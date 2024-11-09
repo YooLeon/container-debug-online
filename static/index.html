@@ -73,6 +73,7 @@
             overflow: hidden;
             background-color: #1e1e1e;
             min-height: 0;
+            display: flex;
         }
 
         .terminal-tab {
@@ -82,15 +83,23 @@
             left: 0;
             right: 0;
             bottom: 0;
-            padding: 10px;
+            width: 100%;
+            height: 100%;
         }
 
         .terminal-tab.active {
-            display: block;
+            display: flex;
+            flex-direction: column;
         }
 
-        .terminal-tab .xterm {
-            height: 100%;
+        .xterm {
+            height: 100% !important;
+            width: 100% !important;
+        }
+
+        .xterm-screen {
+            width: 100% !important;
+            height: 100% !important;
         }
     </style>
 </head>
@@ -106,8 +115,61 @@
                 this.terminalContainer = document.getElementById('terminal-container');
                 this.tabContainer = document.getElementById('tab-container');
                 
-                window.addEventListener('resize', () => this.handleResize());
-                this.loadContainers();
+                this.resizeObserver = new ResizeObserver(entries => {
+                    for (const entry of entries) {
+                        if (entry.target === this.terminalContainer) {
+                            this.handleContainerResize();
+                        }
+                    }
+                });
+                
+                this.resizeObserver.observe(this.terminalContainer);
+                
+                this.loadContainers().then(() => {
+                    const firstContainer = this.terminals.keys().next().value;
+                    if (firstContainer) {
+                        this.activateTerminal(firstContainer);
+                    }
+                });
+            }
+
+            handleContainerResize() {
+                const dimensions = this.calculateTerminalDimensions();
+                for (const [_, terminal] of this.terminals) {
+                    if (terminal.term) {
+                        terminal.term.resize(dimensions.cols, dimensions.rows);
+                        if (terminal.ws && terminal.ws.readyState === WebSocket.OPEN) {
+                            terminal.ws.send(JSON.stringify({
+                                type: 'resize',
+                                cols: dimensions.cols,
+                                rows: dimensions.rows
+                            }));
+                        }
+                    }
+                }
+            }
+
+            calculateTerminalDimensions() {
+                const containerStyle = window.getComputedStyle(this.terminalContainer);
+                const containerWidth = parseInt(containerStyle.width, 10);
+                const containerHeight = parseInt(containerStyle.height, 10);
+
+                const tempTerm = document.createElement('div');
+                tempTerm.style.visibility = 'hidden';
+                tempTerm.style.position = 'absolute';
+                tempTerm.style.fontFamily = 'Menlo, Monaco, "Courier New", monospace';
+                tempTerm.style.fontSize = '14px';
+                tempTerm.textContent = 'X';
+                document.body.appendChild(tempTerm);
+
+                const charWidth = tempTerm.offsetWidth;
+                const charHeight = tempTerm.offsetHeight;
+                document.body.removeChild(tempTerm);
+
+                const cols = Math.floor((containerWidth - 20) / charWidth);
+                const rows = Math.floor((containerHeight - 20) / charHeight);
+
+                return { cols: Math.max(cols, 80), rows: Math.max(rows, 24) };
             }
 
             async loadContainers() {
@@ -115,23 +177,22 @@
                     const response = await fetch('/containers');
                     const containers = await response.json();
                     
-                    containers.forEach(container => {
-                        this.createTerminal(container);
-                    });
-                    
-                    if (containers.length > 0) {
-                        this.activateTerminal(containers[0].id);
+                    for (const container of containers) {
+                        await this.createTerminal(container);
                     }
                 } catch (error) {
                     console.error('Failed to load containers:', error);
                 }
             }
 
-            createTerminal(container) {
+            async createTerminal(container) {
                 const terminalDiv = document.createElement('div');
                 terminalDiv.className = 'terminal-tab';
                 terminalDiv.id = `terminal-${container.id}`;
+                terminalDiv.style.display = 'none';
                 this.terminalContainer.appendChild(terminalDiv);
+
+                const dimensions = this.calculateTerminalDimensions();
 
                 const term = new Terminal({
                     cursorBlink: true,
@@ -140,9 +201,11 @@
                     scrollback: 1000,
                     theme: {
                         background: '#1e1e1e',
-                        foreground: '#d4d4d4',
-                        cursor: '#ffffff'
-                    }
+                        foreground: '#d4d4d4'
+                    },
+                    allowTransparency: true,
+                    cols: dimensions.cols,
+                    rows: dimensions.rows
                 });
 
                 const fitAddon = new FitAddon.FitAddon();
@@ -151,15 +214,69 @@
                 term.open(terminalDiv);
                 fitAddon.fit();
 
-                const ws = this.connectWebSocket(container.id, term);
+                terminalDiv.style.width = '100%';
+                terminalDiv.style.height = '100%';
+                
+                const ws = new WebSocket(`ws://${window.location.host}/ws?container=${container.id}`);
+                
+                ws.onopen = () => {
+                    console.log(`WebSocket connected for ${container.id}`);
+                    this.updateTabStatus(container.id, true);
+                    
+                    ws.send(JSON.stringify({
+                        type: 'resize',
+                        cols: dimensions.cols,
+                        rows: dimensions.rows
+                    }));
+                };
+
+                ws.onmessage = (event) => {
+                    if (event.data) {
+                        term.write(event.data);
+                    }
+                };
+
+                term.onData((data) => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        try {
+                            ws.send(data);
+                        } catch (error) {
+                            console.error('Error sending data:', error);
+                        }
+                    }
+                });
+
+                term.onResize((size) => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        try {
+                            ws.send(JSON.stringify({
+                                type: 'resize',
+                                cols: size.cols,
+                                rows: size.rows
+                            }));
+                        } catch (error) {
+                            console.error('Error sending resize:', error);
+                        }
+                    }
+                });
+
+                ws.onclose = () => {
+                    console.log(`WebSocket closed for ${container.id}`);
+                    this.updateTabStatus(container.id, false);
+                    term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
+                };
+
+                ws.onerror = (error) => {
+                    console.error(`WebSocket error for ${container.id}:`, error);
+                    this.updateTabStatus(container.id, false);
+                };
 
                 this.terminals.set(container.id, {
                     term,
                     ws,
                     div: terminalDiv,
                     fitAddon,
-                    container,
-                    connected: false
+                    connected: true
                 });
 
                 const tabButton = document.createElement('button');
@@ -180,52 +297,13 @@
                 this.tabContainer.appendChild(tabButton);
             }
 
-            connectWebSocket(containerId, term) {
-                const ws = new WebSocket(`ws://${window.location.host}/ws?container=${containerId}`);
-                
-                ws.onopen = () => {
-                    console.log(`WebSocket connected for ${containerId}`);
-                    this.updateTabStatus(containerId, true);
-                    const terminal = this.terminals.get(containerId);
-                    if (terminal) {
-                        terminal.connected = true;
-                    }
-                };
-
-                ws.onmessage = (event) => {
-                    term.write(event.data);
-                };
-
-                term.onData(data => {
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(data);
-                    }
-                });
-
-                ws.onclose = () => {
-                    console.log(`WebSocket closed for ${containerId}`);
-                    this.updateTabStatus(containerId, false);
-                    const terminal = this.terminals.get(containerId);
-                    if (terminal) {
-                        terminal.connected = false;
-                        term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
-                    }
-                };
-
-                ws.onerror = (error) => {
-                    console.error(`WebSocket error for ${containerId}:`, error);
-                    this.updateTabStatus(containerId, false);
-                };
-
-                return ws;
-            }
-
             activateTerminal(containerId) {
                 const terminal = this.terminals.get(containerId);
                 if (!terminal) return;
 
                 this.terminals.forEach((t) => {
                     t.div.classList.remove('active');
+                    t.div.style.display = 'none';
                 });
 
                 document.querySelectorAll('.tab-button').forEach(button => {
@@ -233,6 +311,7 @@
                 });
 
                 terminal.div.classList.add('active');
+                terminal.div.style.display = 'block';
                 
                 const button = document.querySelector(`.tab-button[data-container-id="${containerId}"]`);
                 if (button) {
@@ -242,30 +321,18 @@
                 this.activeTerminal = terminal;
                 terminal.term.focus();
                 terminal.fitAddon.fit();
-            }
 
-            updateTabStatus(containerId, isConnected) {
-                const terminal = this.terminals.get(containerId);
-                if (terminal) {
-                    terminal.connected = isConnected;
-                }
-
-                const button = document.querySelector(`.tab-button[data-container-id="${containerId}"]`);
-                if (button) {
-                    const indicator = button.querySelector('.status-indicator');
-                    indicator.classList.remove('connected', 'disconnected');
-                    indicator.classList.add(isConnected ? 'connected' : 'disconnected');
-                }
-            }
-
-            handleResize() {
-                if (this.activeTerminal) {
-                    this.activeTerminal.fitAddon.fit();
+                if (terminal.ws && terminal.ws.readyState === WebSocket.OPEN) {
+                    const dimensions = this.calculateTerminalDimensions();
+                    terminal.ws.send(JSON.stringify({
+                        type: 'resize',
+                        cols: dimensions.cols,
+                        rows: dimensions.rows
+                    }));
                 }
             }
         }
 
-        // 创建终端管理器实例
         const manager = new TerminalManager();
     </script>
 </body>
