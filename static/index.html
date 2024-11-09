@@ -52,19 +52,49 @@
         }
 
         .status-indicator {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
-            background-color: #666;
+            display: inline-block;
+            margin-right: 8px;
         }
 
-        .status-indicator.connected {
+        .tab-button.healthy .status-indicator {
             background-color: #4CAF50;
-            box-shadow: 0 0 4px rgba(76, 175, 80, 0.5);
+            box-shadow: 0 0 5px #4CAF50;
         }
 
-        .status-indicator.disconnected {
-            background-color: #e74c3c;
+        .tab-button.unhealthy .status-indicator {
+            background-color: #f44336;
+            box-shadow: 0 0 5px #f44336;
+        }
+
+        .health-status-container {
+            margin-top: 8px;
+            padding: 8px;
+            border-top: 1px solid #ddd;
+        }
+
+        .tab-button {
+            position: relative;
+        }
+
+        .tab-button .status-indicator {
+            transition: background-color 0.3s ease;
+        }
+
+        .tab-button:hover .status-indicator::after {
+            content: attr(title);
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
         }
 
         #terminal-container {
@@ -101,6 +131,45 @@
             width: 100% !important;
             height: 100% !important;
         }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            transition: background-color 0.3s ease;
+        }
+
+        .status-indicator.connected {
+            background-color: #4CAF50;
+            box-shadow: 0 0 5px #4CAF50;
+        }
+
+        .status-indicator.disconnected {
+            background-color: #f44336;
+            box-shadow: 0 0 5px #f44336;
+        }
+
+        .terminal-tab {
+            width: 100%;
+            height: 100%;
+            padding: 5px;
+            box-sizing: border-box;
+        }
+
+        .terminal-tab .xterm {
+            height: 100%;
+            width: 100%;
+        }
+
+        .terminal-tab .xterm-viewport {
+            width: 100% !important;
+        }
+
+        .terminal-tab .xterm-screen {
+            width: 100% !important;
+        }
     </style>
 </head>
 <body>
@@ -131,6 +200,30 @@
                         this.activateTerminal(firstContainer);
                     }
                 });
+
+                this.healthStatus = new Map();
+                this.createHealthStatusUI();
+            }
+
+            createHealthStatusUI() {
+                const statusContainer = document.createElement('div');
+                statusContainer.className = 'health-status-container';
+                this.tabContainer.appendChild(statusContainer);
+            }
+
+            updateHealthStatus(containerId, status) {
+                this.healthStatus.set(containerId, status);
+                
+                const button = document.querySelector(`.tab-button[data-container-id="${containerId}"]`);
+                if (button) {
+                    button.classList.remove('healthy', 'unhealthy');
+                    button.classList.add(status.toLowerCase());
+                    
+                    const indicator = button.querySelector('.status-indicator');
+                    if (indicator) {
+                        indicator.title = `Health: ${status} (Last checked: ${new Date().toLocaleTimeString()})`;
+                    }
+                }
             }
 
             handleContainerResize() {
@@ -151,25 +244,17 @@
 
             calculateTerminalDimensions() {
                 const containerStyle = window.getComputedStyle(this.terminalContainer);
-                const containerWidth = parseInt(containerStyle.width, 10);
-                const containerHeight = parseInt(containerStyle.height, 10);
+                const width = parseInt(containerStyle.width);
+                const height = parseInt(containerStyle.height);
+                
+                const fontSize = 14; // px
+                const charWidth = fontSize * 0.6; // 估算单个字符宽度
+                const charHeight = fontSize * 1.2; // 估算行高
 
-                const tempTerm = document.createElement('div');
-                tempTerm.style.visibility = 'hidden';
-                tempTerm.style.position = 'absolute';
-                tempTerm.style.fontFamily = 'Menlo, Monaco, "Courier New", monospace';
-                tempTerm.style.fontSize = '14px';
-                tempTerm.textContent = 'X';
-                document.body.appendChild(tempTerm);
+                const cols = Math.max(Math.floor((width - 20) / charWidth), 80); // 最小80列
+                const rows = Math.max(Math.floor((height - 20) / charHeight), 24); // 最小24行
 
-                const charWidth = tempTerm.offsetWidth;
-                const charHeight = tempTerm.offsetHeight;
-                document.body.removeChild(tempTerm);
-
-                const cols = Math.floor((containerWidth - 20) / charWidth);
-                const rows = Math.floor((containerHeight - 20) / charHeight);
-
-                return { cols: Math.max(cols, 80), rows: Math.max(rows, 24) };
+                return { cols, rows };
             }
 
             async loadContainers() {
@@ -205,23 +290,27 @@
                     },
                     allowTransparency: true,
                     cols: dimensions.cols,
-                    rows: dimensions.rows
+                    rows: dimensions.rows,
+                    windowsMode: true,
+                    rendererType: 'canvas',
                 });
 
                 const fitAddon = new FitAddon.FitAddon();
                 term.loadAddon(fitAddon);
 
                 term.open(terminalDiv);
-                fitAddon.fit();
-
+                
                 terminalDiv.style.width = '100%';
                 terminalDiv.style.height = '100%';
+                terminalDiv.style.padding = '5px';
                 
+                fitAddon.fit();
+
                 const ws = new WebSocket(`ws://${window.location.host}/ws?container=${container.id}`);
                 
                 ws.onopen = () => {
                     console.log(`WebSocket connected for ${container.id}`);
-                    this.updateTabStatus(container.id, true);
+                    this.setConnectionStatus(container.id, true);
                     
                     ws.send(JSON.stringify({
                         type: 'resize',
@@ -231,44 +320,24 @@
                 };
 
                 ws.onmessage = (event) => {
-                    if (event.data) {
-                        term.write(event.data);
-                    }
+                    term.write(event.data);
                 };
 
-                term.onData((data) => {
+                term.onData(data => {
                     if (ws.readyState === WebSocket.OPEN) {
-                        try {
-                            ws.send(data);
-                        } catch (error) {
-                            console.error('Error sending data:', error);
-                        }
-                    }
-                });
-
-                term.onResize((size) => {
-                    if (ws.readyState === WebSocket.OPEN) {
-                        try {
-                            ws.send(JSON.stringify({
-                                type: 'resize',
-                                cols: size.cols,
-                                rows: size.rows
-                            }));
-                        } catch (error) {
-                            console.error('Error sending resize:', error);
-                        }
+                        ws.send(data);
                     }
                 });
 
                 ws.onclose = () => {
                     console.log(`WebSocket closed for ${container.id}`);
-                    this.updateTabStatus(container.id, false);
+                    this.setConnectionStatus(container.id, false);
                     term.write('\r\n\x1b[31mConnection closed\x1b[0m\r\n');
                 };
 
                 ws.onerror = (error) => {
                     console.error(`WebSocket error for ${container.id}:`, error);
-                    this.updateTabStatus(container.id, false);
+                    this.setConnectionStatus(container.id, false);
                 };
 
                 this.terminals.set(container.id, {
@@ -276,7 +345,7 @@
                     ws,
                     div: terminalDiv,
                     fitAddon,
-                    connected: true
+                    connected: false
                 });
 
                 const tabButton = document.createElement('button');
@@ -329,6 +398,22 @@
                         cols: dimensions.cols,
                         rows: dimensions.rows
                     }));
+                }
+            }
+
+            setConnectionStatus(containerId, isConnected) {
+                const terminal = this.terminals.get(containerId);
+                if (terminal) {
+                    terminal.connected = isConnected;
+                }
+
+                const button = document.querySelector(`.tab-button[data-container-id="${containerId}"]`);
+                if (button) {
+                    const indicator = button.querySelector('.status-indicator');
+                    if (indicator) {
+                        indicator.classList.remove('connected', 'disconnected');
+                        indicator.classList.add(isConnected ? 'connected' : 'disconnected');
+                    }
                 }
             }
         }
