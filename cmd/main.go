@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"docker-monitor/internal/config"
+	"docker-monitor/internal/docker"
+	"docker-monitor/internal/middleware"
+	"docker-monitor/internal/web"
 	"log"
 	"net/http"
 	"os"
@@ -9,11 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"docker-monitor/internal/config"
-	"docker-monitor/internal/docker"
-	"docker-monitor/internal/web"
-
 	"github.com/docker/docker/client"
+	"github.com/gorilla/mux"
 	"go.uber.org/zap"
 )
 
@@ -21,40 +22,50 @@ func main() {
 	// 加载配置
 	cfg := config.LoadConfig()
 
-	// 设置日志格式
-	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
-
-	// 创建 Docker 客户端
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
+	// 配置日志
+	logger, err := zap.NewProduction()
 	if err != nil {
-		log.Fatalf("Failed to create Docker client: %v", err)
+		panic(err)
+	}
+	defer logger.Sync()
+
+	// 替换全局logger
+	zap.ReplaceGlobals(logger)
+
+	// 创建 Docker client
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		zap.L().Fatal("Failed to create docker client", zap.Error(err))
 	}
 
-	// 初始化日志
-	logger, _ := zap.NewDevelopment()
-
-	// 初始化 Docker 监控器
-	monitor := docker.NewMonitor(
-		dockerClient,
-		logger,
-		cfg.MonitorInterval,
-		cfg.ComposePath,
-	)
-	defer monitor.Close()
+	// 创建 Docker 监控器
+	monitor := docker.NewMonitor(cli, zap.L(), cfg.MonitorInterval, cfg.ComposePath)
 
 	// 创建 HTTP handler
-	handler := web.NewHandler(monitor)
+	webHandler := web.NewHandler(monitor)
 
-	// 设置路由
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", handler.TerminalHandler)
-	mux.HandleFunc("/containers", handler.ContainersHandler)
-	mux.Handle("/", http.FileServer(http.Dir("static")))
+	// 创建路由器
+	router := mux.NewRouter()
+
+	// 健康检查路由（不需要认证）
+	router.HandleFunc("/health", webHandler.HealthCheckHandler).Methods("GET")
+
+	// 其他需要认证的路由
+	if cfg.Password != "" {
+		router.Use(middleware.AuthMiddleware(cfg.Password))
+	}
+
+	router.HandleFunc("/ws", webHandler.TerminalHandler)
+	router.HandleFunc("/containers", webHandler.ContainersHandler)
+	router.HandleFunc("/containers/{id}/logs", webHandler.ContainerLogsHandler)
+
+	// 静态文件服务
+	router.PathPrefix("/").Handler(http.FileServer(http.Dir("static")))
 
 	// 创建 HTTP 服务器
 	server := &http.Server{
 		Addr:    cfg.ServerPort,
-		Handler: mux,
+		Handler: router,
 	}
 
 	// 优雅关闭通道
@@ -89,9 +100,9 @@ func main() {
 		}
 	}()
 
-	// 启动 HTTP 服务器
+	// 启动服务器
 	go func() {
-		log.Printf("Server starting on http://localhost%s", cfg.ServerPort)
+		log.Printf("Server starting on %s", cfg.ServerPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed to start: %v", err)
 		}

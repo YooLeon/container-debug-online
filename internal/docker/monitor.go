@@ -325,3 +325,16 @@ func (m *Monitor) listAllContainers() ([]ContainerInfo, error) {
 
 	return containerInfos, nil
 }
+
+// ListComposeContainers 返回指定 compose 文件启动的容器信息
+func (m *Monitor) ListComposeContainers() ([]ContainerInfo, error) {
+	if m.composePath == "" {
+		return nil, fmt.Errorf("no compose file specified")
+	}
+	return m.listComposeContainers()
+}
+
+// GetComposePath 返回当前的 compose 文件路径
+func (m *Monitor) GetComposePath() string {
+	return m.composePath
+}

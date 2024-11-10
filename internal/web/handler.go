@@ -14,7 +14,9 @@ import (
 	"docker-monitor/internal/docker"
 
 	"github.com/docker/docker/api/types"
+
 	"github.com/docker/docker/client"
+	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
@@ -162,7 +164,7 @@ func (t *Terminal) Start() {
 
 	t.stdinPipe = resp.Conn
 
-	// 创建错误通道
+	// 建错误通道
 	errChan := make(chan error, 2)
 
 	// 处理输入的消息
@@ -354,4 +356,103 @@ func (h *Handler) getContainer(ctx context.Context, composePath string, containe
 	}
 
 	return nil, fmt.Errorf("container not found")
+}
+
+func (h *Handler) ContainerLogsHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	containerID := vars["id"]
+	if containerID == "" {
+		http.Error(w, "Container ID is required", http.StatusBadRequest)
+		return
+	}
+
+	options := types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Timestamps: true,
+		Tail:       "1000",
+	}
+
+	logs, err := h.dockerClient.ContainerLogs(r.Context(), containerID, options)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer logs.Close()
+
+	w.Header().Set("Content-Type", "text/plain")
+	io.Copy(w, logs)
+}
+
+type HealthResponse struct {
+	Code    int               `json:"code"`
+	Message string            `json:"message"`
+	Details []ContainerStatus `json:"details,omitempty"`
+}
+
+type ContainerStatus struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	ID     string `json:"id"`
+}
+
+func (h *Handler) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// 如果没有指定 compose 文件，直接返回成功
+	if h.monitor.GetComposePath() == "" {
+		json.NewEncoder(w).Encode(HealthResponse{
+			Code:    0,
+			Message: "No compose file specified",
+		})
+		return
+	}
+
+	// 使用 listComposeContainers 获取指定 compose 文件的容器
+	containers, err := h.monitor.ListComposeContainers()
+	if err != nil {
+		json.NewEncoder(w).Encode(HealthResponse{
+			Code:    1,
+			Message: fmt.Sprintf("Error checking compose containers: %v", err),
+		})
+		return
+	}
+
+	// 如果没有找到任何容器
+	if len(containers) == 0 {
+		json.NewEncoder(w).Encode(HealthResponse{
+			Code:    1,
+			Message: "No containers found for the specified compose file",
+		})
+		return
+	}
+
+	var details []ContainerStatus
+	allRunning := true
+
+	for _, container := range containers {
+		details = append(details, ContainerStatus{
+			Name:   container.Name,
+			Status: container.Status,
+			ID:     container.ID,
+		})
+		if container.Status != "running" {
+			allRunning = false
+		}
+	}
+
+	code := 1
+	message := "Some containers are not running"
+	if allRunning {
+		code = 0
+		message = "All containers running"
+	}
+
+	response := HealthResponse{
+		Code:    code,
+		Message: message,
+		Details: details,
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
