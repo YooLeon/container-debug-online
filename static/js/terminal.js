@@ -1,12 +1,9 @@
 class TerminalManager {
     constructor() {
-        this.containers = [];
         this.terminals = new Map();
         this.ws = new Map();
-        this.logPollers = new Map();
-        this.isConnected = true;
-        this.overlay = null;
-        this.notification = null;
+        this.containers = [];
+        this.notificationTimer = null;
     }
 
     initialize() {
@@ -21,27 +18,13 @@ class TerminalManager {
     }
 
     async loadContainers() {
-        if (!this.isConnected) {
-            return;
-        }
-
         try {
             const response = await fetch('/containers');
-            if (response.status === 401) {
-                window.location.reload();
-                return;
-            }
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
             const containers = await response.json();
-            this.containers = Array.isArray(containers) ? containers : [];
+            this.containers = containers;
             this.updateContainerList();
         } catch (error) {
             console.error('Failed to load containers:', error);
-            this.containers = [];
-            this.isConnected = false;
-            this.showNotification('连接已断开，按回车键重新连接', 'error', true);
         }
     }
 
@@ -56,7 +39,7 @@ class TerminalManager {
             const name = document.createElement('span');
             name.className = 'container-name';
             name.textContent = container.name;
-            name.title = container.name; // 添加工具提示
+            name.title = container.name;
             
             const actions = document.createElement('div');
             actions.className = 'container-actions';
@@ -67,8 +50,19 @@ class TerminalManager {
             
             const connectBtn = document.createElement('button');
             connectBtn.className = `action-btn connect-btn ${this.ws.has(container.id) ? 'active' : ''}`;
+            
+            const isRunning = container.status.toLowerCase() === 'running';
+            if (!isRunning) {
+                connectBtn.classList.add('disabled');
+                connectBtn.disabled = true;
+            }
+            
             connectBtn.innerHTML = `<i class="fas fa-terminal"></i> ${this.ws.has(container.id) ? 'Connected' : 'Connect'}`;
-            connectBtn.onclick = () => this.connectToContainer(container.id, container.name);
+            connectBtn.onclick = () => {
+                if (isRunning) {
+                    this.connectToContainer(container.id, container.name);
+                }
+            };
             
             const logsBtn = document.createElement('button');
             logsBtn.className = 'action-btn logs-btn';
@@ -81,6 +75,7 @@ class TerminalManager {
             
             item.appendChild(name);
             item.appendChild(actions);
+            
             containerList.appendChild(item);
         });
     }
@@ -127,98 +122,73 @@ class TerminalManager {
         return { terminal, fitAddon };
     }
 
-    showNotification(message, type = 'info', persistent = false) {
-        // 移除现有的通知和遮罩
-        this.removeNotification();
+    showNotification(message) {
+        const notification = document.getElementById('notification');
+        if (!notification) return;
 
-        // 创建遮罩
-        this.overlay = document.createElement('div');
-        this.overlay.className = 'overlay';
-        document.body.appendChild(this.overlay);
-
-        // 创建通知
-        this.notification = document.createElement('div');
-        this.notification.className = `notification ${type}`;
-        this.notification.textContent = message;
-        document.body.appendChild(this.notification);
-
-        // 显示遮罩和通知
-        this.overlay.style.display = 'block';
+        // 设置消息和关闭按钮
+        notification.innerHTML = `
+            ${message}
+            <button class="notification-close">&times;</button>
+        `;
         
-        if (!persistent) {
-            setTimeout(() => {
-                this.removeNotification();
-            }, 5000);
+        // 显示通知
+        notification.style.display = 'block';
+
+        // 只添加关闭按钮的点击事件
+        const closeBtn = notification.querySelector('.notification-close');
+        if (closeBtn) {
+            closeBtn.onclick = () => {
+                notification.style.display = 'none';
+            };
+        }
+
+        // 移除自动关闭的定时器
+        if (this.notificationTimer) {
+            clearTimeout(this.notificationTimer);
+            this.notificationTimer = null;
         }
     }
 
-    removeNotification() {
-        if (this.overlay) {
-            this.overlay.remove();
-            this.overlay = null;
-        }
-        if (this.notification) {
-            this.notification.remove();
-            this.notification = null;
-        }
-    }
-
-    async connectToContainer(containerId, containerName, retry = false) {
-        if (!this.isConnected && !retry) {
-            return;
-        }
-
+    async connectToContainer(containerId, containerName) {
         try {
-            const { terminal, fitAddon } = this.createTerminal(containerId, containerName);
+            if (this.terminals.has(containerId)) {
+                return;
+            }
+
+            const ws = new WebSocket(`ws://${window.location.host}/ws?container=${containerId}`);
             
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const ws = new WebSocket(`${protocol}//${window.location.host}/ws?container=${containerId}`);
+            const { terminal, terminalElement } = this.createTerminal(containerId, containerName);
             
+            this.terminals.set(containerId, {
+                terminal: terminal,
+                element: terminalElement
+            });
+            
+            this.ws.set(containerId, ws);
+
             ws.onopen = () => {
-                this.terminals.set(containerId, { terminal, fitAddon });
-                this.ws.set(containerId, ws);
-                this.isConnected = true;
-                this.removeNotification();
-                this.loadContainers();
+                this.setupTerminalEvents(terminal, ws);
+                this.updateContainerList();
             };
 
             ws.onclose = () => {
-                this.isConnected = false;
-                this.showNotification('连接已断开\n按回车键重新连接', 'error', true);
-                
-                // 添加全局回车键监听
-                const handleKeyPress = (event) => {
-                    if (event.key === 'Enter') {
-                        document.removeEventListener('keypress', handleKeyPress);
-                        this.connectToContainer(containerId, containerName, true);
-                    }
-                };
-                document.addEventListener('keypress', handleKeyPress);
+                if (this.ws.has(containerId)) {
+                    this.handleDisconnect(containerId, containerName);
+                }
             };
 
             ws.onerror = () => {
-                this.isConnected = false;
-                this.showNotification('连接已断开，按回车键重新连接', 'error', true);
+                this.handleConnectionError(containerId, containerName);
             };
 
             ws.onmessage = (event) => {
                 terminal.write(event.data);
             };
 
-            terminal.onData(data => {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(data);
-                }
-            });
-
-            window.addEventListener('resize', () => {
-                fitAddon.fit();
-                this.sendTerminalSize(containerId);
-            });
-
         } catch (error) {
-            this.isConnected = false;
-            this.showNotification('连接已断开，按回车键重新连接', 'error', true);
+            console.error('Failed to connect to container:', error);
+            this.handleConnectionError(containerId, containerName);
         }
     }
 
@@ -265,15 +235,12 @@ class TerminalManager {
             modal.innerHTML = `
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h3>Logs: ${containerName}</h3>
-                        <div class="logs-header">
-                            <div class="auto-refresh">
+                        <div class="modal-title">Logs: ${containerName}</div>
+                        <div class="logs-controls">
+                            <label class="auto-refresh">
                                 <input type="checkbox" id="auto-refresh-${containerId}">
-                                <label for="auto-refresh-${containerId}">自动刷新</label>
-                            </div>
-                            <button class="logs-refresh">
-                                <i class="fas fa-sync-alt"></i> 刷新
-                            </button>
+                                自动刷新
+                            </label>
                             <button class="modal-close">&times;</button>
                         </div>
                     </div>
@@ -311,9 +278,6 @@ class TerminalManager {
                 }
             });
 
-            // 手动刷新按钮
-            modal.querySelector('.logs-refresh').onclick = updateLogs;
-            
             // 关闭模态框时清理
             const cleanup = () => {
                 if (intervalId) {
@@ -327,8 +291,63 @@ class TerminalManager {
                 if (e.target === modal) cleanup();
             };
         } catch (error) {
-            this.showNotification('获取日志失败', 'error');
+            console.error('Failed to fetch container logs:', error);
         }
+    }
+
+    handleDisconnect(containerId, containerName, showNotification = true) {
+        // 防止重复处理
+        if (!this.ws.has(containerId)) {
+            return;
+        }
+
+        // 清理 WebSocket
+        const ws = this.ws.get(containerId);
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.close();
+        }
+        this.ws.delete(containerId);
+
+        // 只从映射中移除终端，但不清理输出
+        if (this.terminals.has(containerId)) {
+            this.terminals.delete(containerId);
+        }
+        
+        // 更新UI状态
+        this.updateContainerList();
+
+        // 只在需要时显示通知
+        if (showNotification) {
+            this.showNotification('连接已断开');
+        }
+    }
+
+    handleConnectionError(containerId, containerName) {
+        if (this.ws.has(containerId)) {
+            this.ws.delete(containerId);
+        }
+        if (this.terminals.has(containerId)) {
+            this.terminals.delete(containerId);
+        }
+        this.updateContainerList();
+    }
+
+    setupTerminalEvents(terminal, ws) {
+        terminal.onData(data => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(data);
+            }
+        });
+
+        terminal.onResize(size => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'resize',
+                    cols: size.cols,
+                    rows: size.rows
+                }));
+            }
+        });
     }
 }
 
