@@ -1,18 +1,22 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 
 	"docker-monitor/internal/docker"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/client"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 var upgrader = websocket.Upgrader{
@@ -22,15 +26,19 @@ var upgrader = websocket.Upgrader{
 }
 
 type Handler struct {
-	monitor *docker.Monitor
-	mu      sync.Mutex
-	conns   map[*websocket.Conn]bool
+	monitor      *docker.Monitor
+	mu           sync.Mutex
+	conns        map[*websocket.Conn]bool
+	dockerClient *client.Client
+	logger       *zap.Logger
 }
 
 func NewHandler(monitor *docker.Monitor) *Handler {
 	return &Handler{
-		monitor: monitor,
-		conns:   make(map[*websocket.Conn]bool),
+		monitor:      monitor,
+		conns:        make(map[*websocket.Conn]bool),
+		dockerClient: monitor.Client(),
+		logger:       zap.NewNop(),
 	}
 }
 
@@ -268,13 +276,82 @@ func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 	containers, err := h.monitor.ListContainers()
 	if err != nil {
 		log.Printf("Error listing containers: %v", err)
-		http.Error(w, "Failed to list containers", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("Failed to list containers: %v", err),
+		})
 		return
+	}
+
+	// 确保即使没有容器也返回空数组而不是 null
+	if containers == nil {
+		containers = []docker.ContainerInfo{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(containers); err != nil {
 		log.Printf("Error encoding container list: %v", err)
-		http.Error(w, "Failed to encode container list", http.StatusInternalServerError)
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("Failed to encode container list: %v", err),
+		})
 	}
+}
+
+func (h *Handler) getContainer(ctx context.Context, composePath string, containerID string) (*types.Container, error) {
+	// 获取完整的绝对路径
+	absComposePath, err := filepath.Abs(composePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	h.logger.Debug("Looking for container",
+		zap.String("absComposePath", absComposePath),
+		zap.String("containerID", containerID))
+
+	containers, err := h.dockerClient.ContainerList(ctx, types.ContainerListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	for _, container := range containers {
+		inspect, err := h.dockerClient.ContainerInspect(ctx, container.ID)
+		if err != nil {
+			continue
+		}
+
+		labels := inspect.Config.Labels
+		workDir := labels["com.docker.compose.project.working_dir"]
+		configFile := labels["com.docker.compose.project.config_files"]
+		projectName := labels["com.docker.compose.project"]
+
+		// 打印调试信息
+		h.logger.Debug("Checking container",
+			zap.String("containerID", container.ID),
+			zap.String("workDir", workDir),
+			zap.String("configFile", configFile),
+			zap.String("projectName", projectName),
+			zap.Any("labels", labels))
+
+		// 构建容器的 compose 文件完整路径
+		containerComposePath := filepath.Join(workDir, configFile)
+		absContainerComposePath, err := filepath.Abs(containerComposePath)
+		if err != nil {
+			continue
+		}
+
+		h.logger.Debug("Comparing paths",
+			zap.String("absContainerComposePath", absContainerComposePath),
+			zap.String("absComposePath", absComposePath))
+
+		// 严格匹配完整路径和容器ID
+		if absContainerComposePath == absComposePath && container.ID == containerID {
+			h.logger.Debug("Found matching container",
+				zap.String("containerID", container.ID))
+			return &container, nil
+		}
+	}
+
+	return nil, fmt.Errorf("container not found")
 }

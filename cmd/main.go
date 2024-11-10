@@ -12,6 +12,9 @@ import (
 	"docker-monitor/internal/config"
 	"docker-monitor/internal/docker"
 	"docker-monitor/internal/web"
+
+	"github.com/docker/docker/client"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -21,11 +24,22 @@ func main() {
 	// 设置日志格式
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
-	// 初始化 Docker 监控器
-	monitor, err := docker.NewMonitor()
+	// 创建 Docker 客户端
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
-		log.Fatalf("Failed to create Docker monitor: %v", err)
+		log.Fatalf("Failed to create Docker client: %v", err)
 	}
+
+	// 初始化日志
+	logger, _ := zap.NewDevelopment()
+
+	// 初始化 Docker 监控器
+	monitor := docker.NewMonitor(
+		dockerClient,
+		logger,
+		cfg.MonitorInterval,
+		cfg.ComposePath,
+	)
 	defer monitor.Close()
 
 	// 创建 HTTP handler

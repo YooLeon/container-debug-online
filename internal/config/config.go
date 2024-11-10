@@ -6,21 +6,19 @@ import (
 )
 
 type Config struct {
-	ComposeFile     string
-	ComposeFilePath string
-	MonitorInterval time.Duration
 	ServerPort      string
+	MonitorInterval time.Duration
+	ComposePath     string
 }
 
 func LoadConfig() *Config {
-	config := &Config{}
+	cfg := &Config{
+		ServerPort:      ":8080",
+		MonitorInterval: 30 * time.Second,
+	}
 
-	flag.StringVar(&config.ComposeFile, "compose-file", "docker-compose.yml", "Docker compose file name")
-	flag.StringVar(&config.ComposeFilePath, "compose-path", ".", "Path to docker compose file")
-	flag.DurationVar(&config.MonitorInterval, "monitor-interval", 30*time.Second, "Container health check interval")
-	flag.StringVar(&config.ServerPort, "port", ":8080", "Server listening port")
-
+	flag.StringVar(&cfg.ComposePath, "compose", "", "Path to docker-compose.yml file")
 	flag.Parse()
 
-	return config
+	return cfg
 }
