@@ -6,6 +6,7 @@ import (
 	"docker-monitor/internal/docker"
 	"docker-monitor/internal/middleware"
 	"docker-monitor/internal/web"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -64,7 +65,7 @@ func main() {
 
 	// 创建 HTTP 服务器
 	server := &http.Server{
-		Addr:    cfg.ServerPort,
+		Addr:    fmt.Sprintf("%s:%d", cfg.ServerHost, cfg.ServerPort),
 		Handler: router,
 	}
 
@@ -102,7 +103,7 @@ func main() {
 
 	// 启动服务器
 	go func() {
-		log.Printf("Server starting on %s", cfg.ServerPort)
+		log.Printf("Server starting on %s:%d", cfg.ServerHost, cfg.ServerPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed to start: %v", err)
 		}

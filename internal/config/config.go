@@ -6,14 +6,16 @@ import (
 )
 
 type Config struct {
-	ServerPort      string
+	ServerPort      int
+	ServerHost      string
 	ComposePath     string
 	MonitorInterval time.Duration
 	Password        string
 }
 
 func LoadConfig() *Config {
-	serverPort := flag.String("port", ":8080", "Server port")
+	serverPort := flag.Int("port", 14264, "Server port")
+	serverHost := flag.String("host", "0.0.0.0", "Server host")
 	composePath := flag.String("compose", "", "Path to docker-compose.yml")
 	monitorInterval := flag.Duration("interval", 5*time.Second, "Monitor interval")
 	password := flag.String("password", "", "Authentication password")
@@ -22,6 +24,7 @@ func LoadConfig() *Config {
 
 	return &Config{
 		ServerPort:      *serverPort,
+		ServerHost:      *serverHost,
 		ComposePath:     *composePath,
 		MonitorInterval: *monitorInterval,
 		Password:        *password,

@@ -11,6 +11,7 @@ class TerminalManager {
         this.loadContainers();
         // 启动定期更新
         this.startContainerUpdates();
+        this.initializeTerminalsContainer();
     }
 
     startContainerUpdates() {
@@ -23,7 +24,6 @@ class TerminalManager {
     }
 
     initialize() {
-        this.initializeTerminalsContainer();
     }
 
     initializeTerminalsContainer() {
