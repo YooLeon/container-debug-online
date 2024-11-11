@@ -385,8 +385,8 @@ class TerminalManager {
         }
     }
 }
-
+let terminalManager = null;
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
-    new TerminalManager();
+    terminalManager = new TerminalManager();
 });
