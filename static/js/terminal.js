@@ -120,22 +120,62 @@ class TerminalManager {
         
         const terminal = new Terminal({
             cursorBlink: true,
-            macOptionIsMeta: true,
-            scrollback: 1000,
             theme: {
-                background: '#1e1e1e',
-                foreground: '#cccccc'
-            }
+                background: '#1e1e1e'
+            },
+            scrollback: 1000,
+            fontSize: 14,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            letterSpacing: 0,
+            lineHeight: 1,
+            allowTransparency: true,
+            rendererType: 'canvas'
         });
 
+        // 加载 FitAddon
         const fitAddon = new FitAddon.FitAddon();
         terminal.loadAddon(fitAddon);
-        terminal.loadAddon(new WebLinksAddon.WebLinksAddon());
-        
+
         terminal.open(content);
-        fitAddon.fit();
-        
-        return { terminal, fitAddon };
+        terminal._containerId = containerId;
+        terminal._fitAddon = fitAddon;  // 存储 fitAddon 实例
+        terminal.focus();
+
+        // 初始化终端大小
+        this.fitTerminal(terminal, content);
+
+        // 监听容器大小变化
+        const resizeObserver = new ResizeObserver(() => {
+            this.fitTerminal(terminal, content);
+        });
+        resizeObserver.observe(wrapper);
+
+        return { terminal, content };
+    }
+
+    fitTerminal(terminal, element) {
+        if (!terminal || !element || !terminal._fitAddon) return;
+
+        try {
+            // 使用 FitAddon 来自动调整大小
+            terminal._fitAddon.fit();
+            
+            // 发送新的尺寸到服务器
+            this.sendTerminalSize(terminal._containerId, terminal.cols, terminal.rows);
+        } catch (e) {
+            console.error('Failed to fit terminal:', e);
+        }
+    }
+
+    sendTerminalSize(containerId, cols, rows) {
+        const ws = this.ws.get(containerId);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'resize',
+                cols: cols,
+                rows: rows
+            }));
+        }
     }
 
     showNotification(message) {
@@ -227,21 +267,6 @@ class TerminalManager {
         this.updateContainerList();
     }
 
-    sendTerminalSize(containerId) {
-        const terminalData = this.terminals.get(containerId);
-        if (terminalData && this.ws.has(containerId)) {
-            const dimensions = terminalData.fitAddon.proposeDimensions();
-            if (dimensions) {
-                const size = {
-                    type: 'resize',
-                    cols: dimensions.cols,
-                    rows: dimensions.rows
-                };
-                this.ws.get(containerId).send(JSON.stringify(size));
-            }
-        }
-    }
-
     async showContainerLogs(containerId, containerName) {
         try {
             const modal = document.createElement('div');
@@ -329,21 +354,15 @@ class TerminalManager {
     }
 
     setupTerminalEvents(terminal, ws) {
+        // 设置终端输入事件
         terminal.onData(data => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(data);
             }
         });
 
-        terminal.onResize(size => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'resize',
-                    cols: size.cols,
-                    rows: size.rows
-                }));
-            }
-        });
+        // 初始化时发送终端大小
+        this.sendTerminalSize(terminal._containerId, terminal.cols, terminal.rows);
     }
 
     async checkServerConnection() {
