@@ -63,7 +63,7 @@ func main() {
 	router.HandleFunc("/container/logs", webHandler.ContainerLogsHandler)
 
 	// 静态文件服务
-	router.PathPrefix("/").Handler(http.FileServer(http.Dir("static")))
+	router.PathPrefix("/").Handler(http.FileServer(web.GetFileSystem()))
 
 	// 创建 HTTP 服务器
 	server := &http.Server{
