@@ -166,105 +166,103 @@ body {
 .modal {
     display: none;
     position: fixed;
-    top: 0;
+    z-index: 1000;
     left: 0;
+    top: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.7);
-    z-index: 1000;
+    background-color: rgba(0,0,0,0.4);
+    overflow: hidden;
 }
 
 .modal-content {
     position: relative;
     background-color: #1e1e1e;
-    margin: 50px auto;
-    padding: 20px;
+    margin: 5% auto;
+    padding: 0;
+    border: 1px solid #888;
     width: 80%;
     height: 80%;
-    border-radius: 5px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     display: flex;
     flex-direction: column;
+    max-height: 90vh;
+    border-radius: 4px;
 }
 
 .modal-header {
+    padding: 12px 15px;
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #e0e0e0;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 15px 20px;
-    border-bottom: 1px solid #3c3c3c;
-}
-
-.modal-title {
-    margin: 0;
-    font-size: 18px;
-    color: #ffffff;
     flex-shrink: 0;
+    border-radius: 4px 4px 0 0;
 }
 
-.logs-controls {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    flex-shrink: 0;
-}
-
-.auto-refresh {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #cccccc;
-    font-size: 14px;
-    white-space: nowrap;
-}
-
-.auto-refresh input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
+.modal-header h2 {
     margin: 0;
+    font-size: 16px;
+    color: #333;
+    font-weight: 500;
 }
 
-.logs-refresh {
-    height: 28px;
-    padding: 0 12px;
-    background-color: #2196f3;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-}
-
-.logs-refresh:hover {
-    background-color: #1976d2;
-}
-
-.modal-close {
-    background: none;
-    border: none;
-    color: #cccccc;
-    cursor: pointer;
-    font-size: 20px;
-    padding: 4px;
-    margin-left: 20px;
-}
-
-.modal-close:hover {
-    color: #fff;
-}
-
-.logs-content {
+.modal-body {
     flex: 1;
-    background-color: #252526;
+    overflow: hidden;
+    position: relative;
+    border-radius: 0 0 4px 4px;
+    background-color: #1e1e1e;
+}
+
+#logs-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
     padding: 10px;
-    border-radius: 3px;
-    font-family: monospace;
-    overflow: auto;
+    overflow-y: auto;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.4;
+    color: #fff;
     white-space: pre-wrap;
-    color: #cccccc;
+    word-wrap: break-word;
+}
+
+#logs-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+#logs-content::-webkit-scrollbar-track {
+    background: #2d2d2d;
+}
+
+#logs-content::-webkit-scrollbar-thumb {
+    background: #666;
+    border-radius: 4px;
+}
+
+#logs-content::-webkit-scrollbar-thumb:hover {
+    background: #888;
+}
+
+.close {
+    color: #666;
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0 10px;
+    line-height: 1;
+}
+
+.close:hover,
+.close:focus {
+    color: #333;
+    text-decoration: none;
 }
 
 .sidebar-header {
@@ -486,3 +484,65 @@ body {
     background-color: #509d68;
     text-align: center;
 }
+#content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+#terminal-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.terminal-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #333;
+    border-radius: 4px;
+    overflow: hidden;
+    height: 100%;
+}
+
+.terminal-title {
+    padding: 8px 12px;
+    background-color: #333;
+    color: #fff;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.terminal {
+    flex: 1;
+    background-color: #1e1e1e;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* xterm 相关样式 */
+.xterm {
+    height: 100%;
+    width: 100%;
+}
+
+.xterm-viewport {
+    overflow-y: auto !important;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.xterm-screen {
+    width: 100% !important;
+    height: 100% !important;
+}
+

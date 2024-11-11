@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"docker-monitor/internal/docker"
 
 	"github.com/docker/docker/api/types"
+
+	"bufio"
 
 	"github.com/docker/docker/client"
 	"github.com/gorilla/mux"
@@ -260,7 +263,7 @@ func (h *Handler) TerminalHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Received terminal connection request for container: %s", containerID)
 
-	// 升级到 WebSocket 连接
+	// 升到 WebSocket 连接
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Error upgrading to websocket: %v", err)
@@ -358,30 +361,111 @@ func (h *Handler) getContainer(ctx context.Context, composePath string, containe
 	return nil, fmt.Errorf("container not found")
 }
 
+// ContainerLogsHandler 处理容器日志的 WebSocket 连接
 func (h *Handler) ContainerLogsHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	containerID := vars["id"]
+	// 升级 HTTP 连接为 WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("Failed to upgrade logs connection: %v", err)
+		return
+	}
+	defer conn.Close()
+
+	// 获取容器ID
+	containerID := r.URL.Query().Get("container")
 	if containerID == "" {
-		http.Error(w, "Container ID is required", http.StatusBadRequest)
+		conn.WriteMessage(websocket.TextMessage, []byte("Error: Missing container ID"))
 		return
 	}
 
+	// 设置日志选项
 	options := types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
+		Follow:     true,
 		Timestamps: true,
-		Tail:       "1000",
+		Tail:       "100",
+		// 添加 TTY 选项，处理终端大小问题
+		Details: false,
 	}
 
-	logs, err := h.dockerClient.ContainerLogs(r.Context(), containerID, options)
+	// 获取容器信息，检查是否使用了 TTY
+	inspect, err := h.dockerClient.ContainerInspect(r.Context(), containerID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Error inspecting container: %v", err)
 		return
 	}
-	defer logs.Close()
 
-	w.Header().Set("Content-Type", "text/plain")
-	io.Copy(w, logs)
+	// 获取容器日志流
+	ctx := r.Context()
+	logReader, err := h.dockerClient.ContainerLogs(ctx, containerID, options)
+	if err != nil {
+		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error getting logs: %v", err)))
+		return
+	}
+	defer logReader.Close()
+
+	// 根据容器是否使用 TTY 选择不同的处理方式
+	if inspect.Config.Tty {
+		// 容器使用 TTY，直接读取日志
+		reader := bufio.NewReader(logReader)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					if err != io.EOF {
+						log.Printf("Error reading log line: %v", err)
+					}
+					return
+				}
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(line)); err != nil {
+					log.Printf("Error sending log message: %v", err)
+					return
+				}
+			}
+		}
+	} else {
+		// 容器未使用 TTY，需要处理 stdout/stderr 流
+		hdr := make([]byte, 8)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// 读取 Docker 日志头信息
+				_, err := io.ReadFull(logReader, hdr)
+				if err != nil {
+					if err != io.EOF {
+						log.Printf("Error reading log header: %v", err)
+					}
+					return
+				}
+
+				// 获取消息大小
+				count := binary.BigEndian.Uint32(hdr[4:])
+				if count == 0 {
+					continue
+				}
+
+				// 读取实际的日志内容
+				buf := make([]byte, count)
+				_, err = io.ReadFull(logReader, buf)
+				if err != nil {
+					log.Printf("Error reading log message: %v", err)
+					return
+				}
+
+				// 发送日志内容到客户端
+				if err := conn.WriteMessage(websocket.TextMessage, buf); err != nil {
+					log.Printf("Error sending log message: %v", err)
+					return
+				}
+			}
+		}
+	}
 }
 
 type HealthResponse struct {
@@ -455,4 +539,10 @@ func (h *Handler) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(response)
+}
+func (h *Handler) RegisterRoutes(r *mux.Router) {
+	// ... 其他路由 ...
+
+	// WebSocket 路由
+	r.HandleFunc("/container/logs", h.ContainerLogsHandler)
 }

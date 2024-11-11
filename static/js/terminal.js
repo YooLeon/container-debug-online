@@ -267,71 +267,107 @@ class TerminalManager {
         this.updateContainerList();
     }
 
-    async showContainerLogs(containerId, containerName) {
-        try {
-            const modal = document.createElement('div');
-            modal.className = 'modal';
-            modal.innerHTML = `
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <div class="modal-title">Logs: ${containerName}</div>
-                        <div class="logs-controls">
-                            <label class="auto-refresh">
-                                <input type="checkbox" id="auto-refresh-${containerId}">
-                                自动刷新
-                            </label>
-                            <button class="modal-close">&times;</button>
-                        </div>
-                    </div>
-                    <div class="logs-content">
-                        <pre></pre>
-                    </div>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-            modal.style.display = 'block';
-
-            const updateLogs = async () => {
-                const response = await fetch(`/containers/${containerId}/logs`);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                const logs = await response.text();
-                modal.querySelector('pre').textContent = logs;
-            };
-
-            // 初始加载日志
-            await updateLogs();
-
-            // 自动刷新复选框处理
-            const autoRefreshCheckbox = modal.querySelector(`#auto-refresh-${containerId}`);
-            let intervalId = null;
-
-            autoRefreshCheckbox.addEventListener('change', () => {
-                if (autoRefreshCheckbox.checked) {
-                    intervalId = setInterval(updateLogs, 2000);
-                } else {
-                    if (intervalId) {
-                        clearInterval(intervalId);
-                        intervalId = null;
-                    }
-                }
-            });
-
-            // 关闭模态框时清理
-            const cleanup = () => {
-                if (intervalId) {
-                    clearInterval(intervalId);
-                }
-                modal.remove();
-            };
-
-            modal.querySelector('.modal-close').onclick = cleanup;
-            modal.onclick = (e) => {
-                if (e.target === modal) cleanup();
-            };
-        } catch (error) {
-            console.error('Failed to fetch container logs:', error);
+    showContainerLogs(containerId, containerName) {
+        // 先清理之前的 WebSocket 连接
+        if (this.logWs) {
+            this.logWs.close();
+            this.logWs = null;
         }
+
+        // 先移除旧的模态框（如果存在）
+        let oldModal = document.getElementById('logs-modal');
+        if (oldModal) {
+            oldModal.remove();
+        }
+
+        // 创建新的模态框
+        const modal = document.createElement('div');
+        modal.id = 'logs-modal';
+        modal.className = 'modal';
+        
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="logs-title"></h2>
+                    <span class="close">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <pre id="logs-content"></pre>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+
+        const logsContent = document.getElementById('logs-content');
+        const title = document.getElementById('logs-title');
+        const closeBtn = modal.querySelector('.close');
+        
+        logsContent.textContent = 'Loading logs...';
+        title.textContent = `${containerName} Logs`;
+        modal.style.display = 'block';
+
+        // 自动滚动标志
+        let autoScroll = true;
+
+        // 监听滚动事件
+        logsContent.addEventListener('scroll', () => {
+            // 检查是否滚动到底部
+            const scrollBottom = Math.abs(
+                logsContent.scrollHeight - 
+                logsContent.clientHeight - 
+                logsContent.scrollTop
+            ) <= 1;
+
+            // 只有当用户主动滚动时才更新 autoScroll
+            if (!scrollBottom && autoScroll) {
+                autoScroll = false;
+            } else if (scrollBottom && !autoScroll) {
+                autoScroll = true;
+            }
+        });
+
+        const ws = new WebSocket(`ws://${window.location.host}/container/logs?container=${containerId}`);
+        
+        ws.onopen = () => {
+            console.log('Log WebSocket connected');
+            logsContent.textContent = '';
+        };
+
+        ws.onmessage = (event) => {
+            const wasScrolledToBottom = autoScroll;
+            logsContent.textContent += event.data;
+            
+            // 只有在之前处于底部时才自动滚动
+            if (wasScrolledToBottom) {
+                logsContent.scrollTop = logsContent.scrollHeight;
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error('Log WebSocket error:', error);
+            logsContent.textContent = 'Error loading logs';
+        };
+
+        ws.onclose = () => {
+            console.log('Log WebSocket closed');
+        };
+
+        const closeModal = () => {
+            ws.close();
+            modal.remove();
+            this.logWs = null;
+        };
+
+        closeBtn.onclick = closeModal;
+
+        window.onclick = (event) => {
+            if (event.target === modal) {
+                closeModal();
+            }
+        };
+
+        this.logWs = ws;
     }
 
     handleDisconnect(containerId) {
