@@ -177,7 +177,7 @@ body {
 
 .modal-content {
     position: relative;
-    background-color: #1e1e1e;
+    background-color: #2f2f2f;
     margin: 5% auto;
     padding: 0;
     border: 1px solid #888;
@@ -213,7 +213,7 @@ body {
     overflow: hidden;
     position: relative;
     border-radius: 0 0 4px 4px;
-    background-color: #1e1e1e;
+    background-color: #2f2f2f;
 }
 
 #logs-content {
@@ -231,6 +231,7 @@ body {
     color: #fff;
     white-space: pre-wrap;
     word-wrap: break-word;
+    background-color: #2f2f2f;
 }
 
 #logs-content::-webkit-scrollbar {
@@ -238,7 +239,8 @@ body {
 }
 
 #logs-content::-webkit-scrollbar-track {
-    background: #2d2d2d;
+    background: #3f3f3f;  /* 稍微浅一点的灰色 */
+
 }
 
 #logs-content::-webkit-scrollbar-thumb {
@@ -474,7 +476,7 @@ body {
 .terminal {
     height: 400px;
     padding: 4px;
-    background-color: #1e1e1e;
+    background-color: #2f2f2f !important; 
 }
 
 .sidebar-header {

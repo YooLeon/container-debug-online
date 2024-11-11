@@ -121,7 +121,8 @@ class TerminalManager {
         const terminal = new Terminal({
             cursorBlink: true,
             theme: {
-                background: '#1e1e1e'
+                background: '#2f2f2f',  // 改为深灰色
+                foreground: '#ffffff'
             },
             scrollback: 1000,
             fontSize: 14,
