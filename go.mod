@@ -1,4 +1,4 @@
-module docker-monitor
+module github.com/YooLeon/container-debug-online
 
 go 1.21
 

@@ -2,10 +2,6 @@ package main
 
 import (
 	"context"
-	"docker-monitor/internal/config"
-	"docker-monitor/internal/docker"
-	"docker-monitor/internal/middleware"
-	"docker-monitor/internal/web"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +9,11 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/YooLeon/container-debug-online/internal/config"
+	"github.com/YooLeon/container-debug-online/internal/docker"
+	"github.com/YooLeon/container-debug-online/internal/middleware"
+	"github.com/YooLeon/container-debug-online/internal/web"
 
 	"github.com/docker/docker/client"
 	"github.com/gorilla/mux"

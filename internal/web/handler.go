@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"docker-monitor/internal/docker"
+	"github.com/YooLeon/container-debug-online/internal/docker"
 
 	"github.com/docker/docker/api/types"
 
