@@ -149,6 +149,23 @@ go test ./...
 go build
 ```
 
+### 构建 | Build
+
+项目使用 Go embed 将静态文件打包到二进制文件中，构建时无需额外的静态文件拷贝。
+
+The project uses Go embed to package static files into the binary, no additional static file copying is needed during build.
+
+```bash
+# 开发模式构建
+go build
+
+# 生产模式构建（启用优化）
+go build -ldflags="-s -w"
+```
+
+构建后得到的二进制文件可以直接运行，无需额外的静态文件。
+The built binary can be run directly without additional static files.
+
 ## 贡献 | Contributing
 
 1. Fork 本项目 | Fork this repository
