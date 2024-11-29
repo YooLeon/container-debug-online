@@ -68,9 +68,14 @@ class TerminalManager {
             connectBtn.className = `action-btn connect-btn ${this.ws.has(container.id) ? 'active' : ''}`;
             connectBtn.innerHTML = `<i class="fas fa-terminal"></i> ${this.ws.has(container.id) ? 'Connected' : 'Connect'}`;
             
-            if (!this.isServerConnected) {
+            // 检查容器是否可连接
+            const canConnect = container.status.toLowerCase() === 'running' && container.id;
+            
+            if (!this.isServerConnected || !canConnect) {
                 connectBtn.disabled = true;
                 connectBtn.classList.add('disabled');
+                // 添加提示信息
+                connectBtn.title = !this.isServerConnected ? '服务器未连接' : '容器未运行';
             } else {
                 connectBtn.onclick = () => this.connectToContainer(container.id, container.name);
             }
@@ -79,9 +84,11 @@ class TerminalManager {
             logsBtn.className = 'action-btn logs-btn';
             logsBtn.innerHTML = '<i class="fas fa-file-alt"></i> Logs';
             
-            if (!this.isServerConnected) {
+            // 日志按钮只在容器有 ID 时可用
+            if (!this.isServerConnected || !container.id) {
                 logsBtn.disabled = true;
                 logsBtn.classList.add('disabled');
+                logsBtn.title = !this.isServerConnected ? '服务器未连接' : '容器未创建';
             } else {
                 logsBtn.onclick = () => this.showContainerLogs(container.id, container.name);
             }

@@ -45,35 +45,58 @@ func NewHandler(monitor *docker.Monitor) *Handler {
 
 func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 	status := h.monitor.GetAllStatus()
+	config := h.monitor.GetComposeConfig()
 
 	var response []ContainerResponse
-	for _, containerStatus := range status.Containers {
-		// 检查容器是否健康
-		healthy := true
-		for _, portHealthy := range containerStatus.PortsHealthy {
-			if !portHealthy {
-				healthy = false
-				break
+	// 按照 docker-compose 中的服务顺序添加容器
+	for _, serviceName := range config.SortedServices {
+		if serviceStatus, ok := status.Services[serviceName]; ok {
+			// 直接使用 service 中的容器 ID 获取容器状态
+			if containerStatus, exists := status.Containers[serviceStatus.ContainerID]; exists {
+				healthy := true
+				for _, portHealthy := range containerStatus.PortsHealthy {
+					if !portHealthy {
+						healthy = false
+						break
+					}
+				}
+				
+				response = append(response, ContainerResponse{
+					ID:          serviceStatus.ContainerID,
+					Name:        containerStatus.Info.Name,
+					Status:      containerStatus.Info.Status,
+					Service:     serviceName,
+					PortsHealth: containerStatus.PortsHealthy,
+					Healthy:     healthy && serviceStatus.Healthy,
+					Labels:      containerStatus.Info.Labels,
+				})
+			} else {
+				// 服务存在但容器未找到
+				response = append(response, ContainerResponse{
+					ID:          "",
+					Name:        fmt.Sprintf("%s (not running)", serviceName),
+					Status:      "not found",
+					Service:     serviceName,
+					PortsHealth: make(map[string]bool),
+					Healthy:     false,
+					Labels:      make(map[string]string),
+				})
 			}
+		} else {
+			// 服务配置存在但服务状态未找到
+			response = append(response, ContainerResponse{
+				ID:          "",
+				Name:        fmt.Sprintf("%s (not started)", serviceName),
+				Status:      "not started",
+				Service:     serviceName,
+				PortsHealth: make(map[string]bool),
+				Healthy:     false,
+				Labels:      make(map[string]string),
+			})
 		}
-
-		// 如果是服务的一部分，检查服务健康状态
-		if serviceName := containerStatus.Info.Service; serviceName != "" {
-			if serviceStatus, ok := status.Services[serviceName]; ok {
-				healthy = healthy && serviceStatus.Healthy
-			}
-		}
-
-		response = append(response, ContainerResponse{
-			ID:          containerStatus.Info.ID,
-			Name:        containerStatus.Info.Name,
-			Status:      containerStatus.Info.Status,
-			Service:     containerStatus.Info.Service,
-			PortsHealth: containerStatus.PortsHealthy,
-			Healthy:     healthy,
-			Labels:      containerStatus.Info.Labels,
-		})
 	}
+
+
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

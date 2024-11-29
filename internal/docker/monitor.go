@@ -85,6 +85,10 @@ func (m *Monitor) Close() error {
 	return nil
 }
 
+func (m *Monitor) GetComposeConfig() *config.ComposeConfig {
+	return m.composeConfig
+}
+
 // GetComposePath 返回当前的 compose 文件路径
 func (m *Monitor) GetComposePath() string {
 	return m.composeConfig.Path
