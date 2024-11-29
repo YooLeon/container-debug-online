@@ -25,7 +25,12 @@ class TerminalManager {
 
     initializeTerminalsContainer() {
         const mainContent = document.querySelector('.main-content');
-        mainContent.innerHTML = '<div class="terminals-container"></div>';
+        mainContent.innerHTML = `
+            <div class="terminals-container">
+                <div class="terminal-tabs"></div>
+                <div class="terminal-panels"></div>
+            </div>
+        `;
     }
 
     async loadContainers() {
@@ -123,30 +128,42 @@ class TerminalManager {
 
     createTerminal(containerId, containerName) {
         const terminalsContainer = document.querySelector('.terminals-container');
+        const terminalTabs = terminalsContainer.querySelector('.terminal-tabs');
+        const terminalPanels = terminalsContainer.querySelector('.terminal-panels');
         
+        // 创建标签
+        const tab = document.createElement('div');
+        tab.className = 'terminal-tab';
+        tab.dataset.containerId = containerId;
+        tab.innerHTML = `
+            <span class="tab-title">${containerName}</span>
+            <button class="tab-close" onclick="event.stopPropagation(); terminalManager.closeTerminal('${containerId}')">&times;</button>
+        `;
+        
+        // 创建终端面板
         const wrapper = document.createElement('div');
         wrapper.className = 'terminal-wrapper';
         wrapper.id = `terminal-wrapper-${containerId}`;
-        
-        const header = document.createElement('div');
-        header.className = 'terminal-header';
-        header.innerHTML = `
-            <span class="title">${containerName}</span>
-            <button class="close-btn" onclick="terminalManager.closeTerminal('${containerId}')">&times;</button>
-        `;
+        wrapper.style.display = 'none';
         
         const content = document.createElement('div');
         content.className = 'terminal-content';
         content.id = `terminal-${containerId}`;
+        content.style.height = '100%';
         
-        wrapper.appendChild(header);
         wrapper.appendChild(content);
-        terminalsContainer.appendChild(wrapper);
+        
+        // 添加到DOM
+        terminalTabs.appendChild(tab);
+        terminalPanels.appendChild(wrapper);
+        
+        // 设置标签点击事件
+        tab.onclick = () => this.switchTerminal(containerId);
         
         const terminal = new Terminal({
             cursorBlink: true,
             theme: {
-                background: '#2f2f2f',  // 改为深灰色
+                background: '#2f2f2f',
                 foreground: '#ffffff'
             },
             scrollback: 1000,
@@ -158,21 +175,38 @@ class TerminalManager {
             rendererType: 'canvas'
         });
 
-        // 加载 FitAddon
         const fitAddon = new FitAddon.FitAddon();
         terminal.loadAddon(fitAddon);
 
         terminal.open(content);
         terminal._containerId = containerId;
-        terminal._fitAddon = fitAddon;  // 存储 fitAddon 实例
+        terminal._fitAddon = fitAddon;
+        
+        // 激活新创建的终端
+        this.switchTerminal(containerId);
+
+        // 确保 xterm.js 的元素也填充整个容器
+        const xtermElement = content.querySelector('.xterm');
+        if (xtermElement) {
+            xtermElement.style.height = '100%';
+            const xtermScreen = xtermElement.querySelector('.xterm-screen');
+            if (xtermScreen) {
+                xtermScreen.style.height = '100%';
+            }
+        }
+
         terminal.focus();
 
-        // 初始化终端大小
-        this.fitTerminal(terminal, content);
+        // 使用 requestAnimationFrame 确保在下一帧渲染时调整尺寸
+        requestAnimationFrame(() => {
+            this.fitTerminal(terminal, content);
+        });
 
         // 监听容器大小变化
         const resizeObserver = new ResizeObserver(() => {
-            this.fitTerminal(terminal, content);
+            requestAnimationFrame(() => {
+                this.fitTerminal(terminal, content);
+            });
         });
         resizeObserver.observe(wrapper);
 
@@ -186,8 +220,15 @@ class TerminalManager {
             // 使用 FitAddon 来自动调整大小
             terminal._fitAddon.fit();
             
+            // 获取新的尺寸
+            const newCols = terminal.cols;
+            const newRows = terminal.rows;
+            
             // 发送新的尺寸到服务器
-            this.sendTerminalSize(terminal._containerId, terminal.cols, terminal.rows);
+            this.sendTerminalSize(terminal._containerId, newCols, newRows);
+            
+            // 触发 resize 事件以确保终端内容正确重绘
+            terminal.refresh(0, terminal.rows - 1);
         } catch (e) {
             console.error('Failed to fit terminal:', e);
         }
@@ -196,11 +237,17 @@ class TerminalManager {
     sendTerminalSize(containerId, cols, rows) {
         const ws = this.ws.get(containerId);
         if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: "resize",
-                cols: cols,
-                rows: rows
-            }));
+            try {
+                const resizeMessage = JSON.stringify({
+                    type: "resize",
+                    cols: cols,
+                    rows: rows
+                });
+                ws.send(resizeMessage);
+                console.debug(`Sent terminal resize: ${cols}x${rows} for container ${containerId}`);
+            } catch (error) {
+                console.error('Failed to send terminal size:', error);
+            }
         }
     }
 
@@ -260,8 +307,11 @@ class TerminalManager {
                     }
                 });
 
-                // 初始化终端大小
-                this.sendTerminalSize(containerId, terminal.cols, terminal.rows);
+                // 立即发送初始终端大小
+                requestAnimationFrame(() => {
+                    this.fitTerminal(terminal, content);
+                });
+                
                 this.updateContainerList();
             };
 
@@ -308,7 +358,20 @@ class TerminalManager {
             this.ws.delete(containerId);
         }
 
+        // 移除标签和终端面板
+        const tab = document.querySelector(`.terminal-tab[data-container-id="${containerId}"]`);
         const wrapper = document.getElementById(`terminal-wrapper-${containerId}`);
+        
+        if (tab) {
+            // 如果关闭的是当前活动的标签，切换到其他标签
+            if (tab.classList.contains('active')) {
+                const nextTab = tab.nextElementSibling || tab.previousElementSibling;
+                if (nextTab) {
+                    this.switchTerminal(nextTab.dataset.containerId);
+                }
+            }
+            tab.remove();
+        }
         if (wrapper) {
             wrapper.remove();
         }
@@ -489,6 +552,35 @@ class TerminalManager {
 
             // 更新UI状态
             this.updateContainerList();
+        }
+    }
+
+    // 添加新方法：切换终端
+    switchTerminal(containerId) {
+        // 隐藏所有终端和取消激活所有标签
+        const allTabs = document.querySelectorAll('.terminal-tab');
+        const allWrappers = document.querySelectorAll('.terminal-wrapper');
+        
+        allTabs.forEach(tab => tab.classList.remove('active'));
+        allWrappers.forEach(wrapper => wrapper.style.display = 'none');
+        
+        // 显示选中的终端和激活对应标签
+        const selectedTab = document.querySelector(`.terminal-tab[data-container-id="${containerId}"]`);
+        const selectedWrapper = document.getElementById(`terminal-wrapper-${containerId}`);
+        
+        if (selectedTab && selectedWrapper) {
+            selectedTab.classList.add('active');
+            selectedWrapper.style.display = 'block';
+            
+            // 重新适应终端大小
+            const terminalData = this.terminals.get(containerId);
+            if (terminalData) {
+                // 等待 DOM 更新完成后再调整尺寸
+                setTimeout(() => {
+                    this.fitTerminal(terminalData.terminal, terminalData.element);
+                    terminalData.terminal.focus();
+                }, 0);
+            }
         }
     }
 }

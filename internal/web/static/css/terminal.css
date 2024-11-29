@@ -1,0 +1,95 @@
+.terminals-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.terminal-tabs {
+    display: flex;
+    background: #1e1e1e;
+    border-bottom: 1px solid #333;
+    height: 35px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.terminal-tab {
+    display: flex;
+    align-items: center;
+    padding: 0 15px;
+    height: 34px;
+    background: #2d2d2d;
+    border-right: 1px solid #333;
+    color: #999;
+    cursor: pointer;
+    user-select: none;
+    min-width: 100px;
+    max-width: 200px;
+}
+
+.terminal-tab.active {
+    background: #2f2f2f;
+    color: #fff;
+    border-bottom: 2px solid #007acc;
+}
+
+.terminal-tab:hover {
+    background: #3d3d3d;
+}
+
+.tab-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-right: 8px;
+}
+
+.tab-close {
+    background: none;
+    border: none;
+    color: #999;
+    font-size: 16px;
+    padding: 0 4px;
+    cursor: pointer;
+    border-radius: 3px;
+}
+
+.tab-close:hover {
+    background: #444;
+    color: #fff;
+}
+
+.terminal-panels {
+    flex: 1;
+    position: relative;
+    background: #2f2f2f;
+    overflow: hidden;
+}
+
+.terminal-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 4px;
+}
+
+/* 滚动条样式 */
+.terminal-tabs::-webkit-scrollbar {
+    height: 4px;
+}
+
+.terminal-tabs::-webkit-scrollbar-track {
+    background: #1e1e1e;
+}
+
+.terminal-tabs::-webkit-scrollbar-thumb {
+    background: #666;
+    border-radius: 2px;
+}
+
+.terminal-tabs::-webkit-scrollbar-thumb:hover {
+    background: #888;
+} 
