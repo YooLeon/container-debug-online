@@ -23,9 +23,6 @@ class TerminalManager {
         }, 5000);
     }
 
-    initialize() {
-    }
-
     initializeTerminalsContainer() {
         const mainContent = document.querySelector('.main-content');
         mainContent.innerHTML = '<div class="terminals-container"></div>';
@@ -59,6 +56,10 @@ class TerminalManager {
             const actions = document.createElement('div');
             actions.className = 'container-actions';
             
+            const healthStatus = document.createElement('span');
+            healthStatus.className = `health-status ${container.healthy ? 'healthy' : 'unhealthy'}`;
+            healthStatus.title = this.getHealthStatusTitle(container);
+            
             const status = document.createElement('span');
             status.className = `container-status ${container.status.toLowerCase()}`;
             status.textContent = container.status;
@@ -85,6 +86,7 @@ class TerminalManager {
                 logsBtn.onclick = () => this.showContainerLogs(container.id, container.name);
             }
             
+            actions.appendChild(healthStatus);
             actions.appendChild(status);
             actions.appendChild(connectBtn);
             actions.appendChild(logsBtn);
@@ -94,6 +96,22 @@ class TerminalManager {
             
             containerList.appendChild(item);
         });
+    }
+
+    getHealthStatusTitle(container) {
+        let details = [];
+        
+        if (container.ports_health) {
+            for (const [port, healthy] of Object.entries(container.ports_health)) {
+                details.push(`Port ${port}: ${healthy ? '✓' : '✗'}`);
+            }
+        }
+        
+        if (container.service) {
+            details.push(`Service ${container.service}: ${container.healthy ? 'Healthy' : 'Unhealthy'}`);
+        }
+        
+        return details.join('\n') || 'Container Status';
     }
 
     createTerminal(containerId, containerName) {
@@ -172,7 +190,7 @@ class TerminalManager {
         const ws = this.ws.get(containerId);
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
-                type: 'resize',
+                type: "resize",
                 cols: cols,
                 rows: rows
             }));
@@ -213,32 +231,55 @@ class TerminalManager {
                 return;
             }
 
+            const { terminal, content } = this.createTerminal(containerId, containerName);
+            
             const ws = new WebSocket(`ws://${window.location.host}/ws?container=${containerId}`);
             
-            const { terminal, terminalElement } = this.createTerminal(containerId, containerName);
-            
-            this.terminals.set(containerId, {
-                terminal: terminal,
-                element: terminalElement
-            });
-            
-            this.ws.set(containerId, ws);
-
             ws.onopen = () => {
-                this.setupTerminalEvents(terminal, ws);
+                this.terminals.set(containerId, {
+                    terminal: terminal,
+                    element: content
+                });
+                
+                this.ws.set(containerId, ws);
+                
+                // 设置终端事件
+                terminal.onData(data => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "input",
+                            data: data
+                        }));
+                    }
+                });
+
+                // 初始化终端大小
+                this.sendTerminalSize(containerId, terminal.cols, terminal.rows);
                 this.updateContainerList();
+            };
+
+            ws.onmessage = (event) => {
+                const data = event.data;
+                if (data instanceof Blob) {
+                    // 处理二进制数据
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        terminal.write(new Uint8Array(reader.result));
+                    };
+                    reader.readAsArrayBuffer(data);
+                } else {
+                    // 处理文本数据
+                    terminal.write(data);
+                }
             };
 
             ws.onclose = () => {
                 this.handleDisconnect(containerId);
             };
 
-            ws.onerror = () => {
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
                 this.handleDisconnect(containerId);
-            };
-
-            ws.onmessage = (event) => {
-                terminal.write(event.data);
             };
 
         } catch (error) {
@@ -394,7 +435,10 @@ class TerminalManager {
         // 设置终端输入事件
         terminal.onData(data => {
             if (ws.readyState === WebSocket.OPEN) {
-                ws.send(data);
+                ws.send(JSON.stringify({
+                    type: "input",
+                    data: data
+                }));
             }
         });
 

@@ -3,14 +3,17 @@ package config
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"gopkg.in/yaml.v2"
 )
 
 // ComposeConfig 表示 docker-compose 配置
 type ComposeConfig struct {
-	Version  string                   `yaml:"version"`
-	Services map[string]ServiceConfig `yaml:"services"`
+	Version        string                   `yaml:"version"`
+	Services       map[string]ServiceConfig `yaml:"services"`
+	Path           string                   `yaml:"-"`
+	SortedServices []string                 `yaml:"-"`
 }
 
 // ServiceConfig 表示服务配置
@@ -76,8 +79,24 @@ func LoadComposeConfig(configPath string) (*ComposeConfig, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, fmt.Errorf("invalid compose configuration: %v", err)
 	}
+	config.Path = configPath
+	config.SortedServices = sortServices(config.Services)
 
 	return config, nil
+}
+
+// GetServiceCount 获取服务数量
+func (c *ComposeConfig) GetServiceCount() int {
+	return len(c.SortedServices)
+}
+
+func sortServices(services map[string]ServiceConfig) []string {
+	serviceNames := make([]string, 0, len(services))
+	for name := range services {
+		serviceNames = append(serviceNames, name)
+	}
+	sort.Strings(serviceNames)
+	return serviceNames
 }
 
 // validateConfig 验证配置是否有效

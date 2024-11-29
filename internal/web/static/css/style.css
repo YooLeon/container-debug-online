@@ -548,3 +548,47 @@ body {
     height: 100% !important;
 }
 
+.health-status {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.health-status.healthy {
+    background-color: #4CAF50;
+}
+
+.health-status.unhealthy {
+    background-color: #f44336;
+}
+
+.service-name {
+    font-size: 0.9em;
+    color: #666;
+    margin-right: 10px;
+}
+
+.container-status {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    margin-right: 10px;
+}
+
+.container-status.running {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.container-status.exited {
+    background-color: #f44336;
+    color: white;
+}
+
+.container-status.created {
+    background-color: #2196F3;
+    color: white;
+}
+

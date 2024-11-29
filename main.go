@@ -40,8 +40,15 @@ func main() {
 		zap.L().Fatal("Failed to create docker client", zap.Error(err))
 	}
 
+	// 加载 compose 配置
+	composeConfig, err := config.LoadComposeConfig(cfg.ComposePath)
+	if err != nil {
+		zap.L().Fatal("Failed to load compose config", zap.Error(err))
+	}
+
 	// 创建 Docker 监控器
-	monitor := docker.NewMonitor(cli, zap.L(), cfg.MonitorInterval, cfg.ComposePath)
+	monitor := docker.NewMonitor(cli, zap.L(), cfg.MonitorInterval, composeConfig)
+	defer monitor.Close()
 
 	// 创建 HTTP handler
 	webHandler := web.NewHandler(monitor)
@@ -74,8 +81,11 @@ func main() {
 	// 优雅关闭通道
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	if err := monitor.UpdateStatus(); err != nil {
+		zap.L().Error("Failed to update status", zap.Error(err))
+	}
 
-	// 启动监控服务
+	// 修改监控循环
 	go func() {
 		ticker := time.NewTicker(cfg.MonitorInterval)
 		defer ticker.Stop()
@@ -83,19 +93,8 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				containers, err := monitor.ListContainers()
-				if err != nil {
-					log.Printf("Error listing containers: %v", err)
-					continue
-				}
-
-				for _, container := range containers {
-					status, err := monitor.CheckContainerStatus(container.ID)
-					if err != nil {
-						log.Printf("Error checking container %s (%s): %v", container.Name, container.ID, err)
-						continue
-					}
-					log.Printf("Container %s (%s) status: %s", container.Name, container.ID, status)
+				if err := monitor.UpdateStatus(); err != nil {
+					zap.L().Error("Failed to update status", zap.Error(err))
 				}
 			case <-stop:
 				return
