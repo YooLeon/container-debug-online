@@ -9,7 +9,7 @@
     background: #1e1e1e;
     border-bottom: 1px solid #333;
     height: 35px;
-    overflow-x: auto;
+    overflow: hidden;
     scrollbar-width: thin;
 }
 
@@ -76,20 +76,3 @@
     padding: 4px;
 }
 
-/* 滚动条样式 */
-.terminal-tabs::-webkit-scrollbar {
-    height: 4px;
-}
-
-.terminal-tabs::-webkit-scrollbar-track {
-    background: #1e1e1e;
-}
-
-.terminal-tabs::-webkit-scrollbar-thumb {
-    background: #666;
-    border-radius: 2px;
-}
-
-.terminal-tabs::-webkit-scrollbar-thumb:hover {
-    background: #888;
-} 

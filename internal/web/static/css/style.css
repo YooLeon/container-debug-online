@@ -192,8 +192,8 @@ body {
 
 .modal-header {
     padding: 12px 15px;
-    background-color: #f5f5f5;
-    border-bottom: 1px solid #e0e0e0;
+    background-color: #333333;
+    border-bottom: 1px solid #444444;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -204,7 +204,7 @@ body {
 .modal-header h2 {
     margin: 0;
     font-size: 16px;
-    color: #333;
+    color: #ffffff;
     font-weight: 500;
 }
 
@@ -228,10 +228,10 @@ body {
     font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
     font-size: 14px;
     line-height: 1.4;
-    color: #fff;
+    color: #d4d4d4;
     white-space: pre-wrap;
     word-wrap: break-word;
-    background-color: #2f2f2f;
+    background-color: #1e1e1e;
 }
 
 #logs-content::-webkit-scrollbar {
@@ -239,8 +239,7 @@ body {
 }
 
 #logs-content::-webkit-scrollbar-track {
-    background: #3f3f3f;  /* 稍微浅一点的灰色 */
-
+    background: #3f3f3f;
 }
 
 #logs-content::-webkit-scrollbar-thumb {
@@ -590,5 +589,23 @@ body {
 .container-status.created {
     background-color: #2196F3;
     color: white;
+}
+
+/* 通用滚动条样式 */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #3f3f3f;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #666;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #888;
 }
 
