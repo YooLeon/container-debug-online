@@ -438,7 +438,7 @@ body {
     background-color: #1976d2;
 }
 
-/* 添加禁用状态样式 */
+/* 添���禁用状态样式 */
 .connect-btn.disabled {
     background-color: #666;
     cursor: not-allowed;
@@ -607,5 +607,30 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #888;
+}
+
+.modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.download-logs-btn {
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    padding: 5px;
+    font-size: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.download-logs-btn:hover {
+    color: #333;
+    background-color: rgba(0, 0, 0, 0.1);
 }
 

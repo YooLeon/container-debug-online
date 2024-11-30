@@ -60,7 +60,7 @@ func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 						break
 					}
 				}
-				
+
 				response = append(response, ContainerResponse{
 					ID:          serviceStatus.ContainerID,
 					Name:        containerStatus.Info.Name,
@@ -95,8 +95,6 @@ func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
-
-
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
@@ -255,10 +253,17 @@ func (h *Handler) ContainerLogsHandler(w http.ResponseWriter, r *http.Request) {
 		Details: false,
 	}
 
-	// 获取容器信息，检查是否使用了 TTY
+	// 获取容器信息，检查是否使用了 TTY，同时获取服务名称
 	inspect, err := h.monitor.Client().ContainerInspect(r.Context(), containerID)
 	if err != nil {
 		h.logger.Error("Error inspecting container", zap.Error(err))
+		return
+	}
+
+	// 从容器标签中获取服务名称
+	serviceName := inspect.Config.Labels["com.docker.compose.service"]
+	if serviceName == "" {
+		h.logger.Error("Service name not found in container labels")
 		return
 	}
 
@@ -333,4 +338,96 @@ func (h *Handler) ContainerLogsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+}
+
+func (h *Handler) DownloadLogsHandler(w http.ResponseWriter, r *http.Request) {
+	containerID := r.URL.Query().Get("container")
+	if containerID == "" {
+		http.Error(w, "Missing container ID", http.StatusBadRequest)
+		return
+	}
+
+	// 获取容器信息以确定服务名
+	inspect, err := h.monitor.Client().ContainerInspect(r.Context(), containerID)
+	if err != nil {
+		h.logger.Error("Error inspecting container", zap.Error(err))
+		http.Error(w, "Failed to get container info", http.StatusInternalServerError)
+		return
+	}
+
+	// 从容器标签中获取服务名称
+	serviceName := inspect.Config.Labels["com.docker.compose.service"]
+	if serviceName == "" {
+		h.logger.Error("Service name not found in container labels")
+		http.Error(w, "Failed to get service name", http.StatusInternalServerError)
+		return
+	}
+
+	// 设置响应头
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.log", serviceName))
+
+	// 获取所有日志
+	options := types.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     false,
+		Timestamps: true,
+		Details:    false,
+	}
+
+	logs, err := h.monitor.Client().ContainerLogs(r.Context(), containerID, options)
+	if err != nil {
+		h.logger.Error("Error getting logs", zap.Error(err))
+		http.Error(w, "Failed to get logs", http.StatusInternalServerError)
+		return
+	}
+	defer logs.Close()
+
+	// 根据容器是否使用 TTY 选择不同的处理方式
+	if inspect.Config.Tty {
+		// TTY 模式：直接复制日志内容
+		_, err = io.Copy(w, logs)
+		if err != nil {
+			h.logger.Error("Error copying logs", zap.Error(err))
+			return
+		}
+	} else {
+		// 非 TTY 模式：需要处理 Docker 日志格式
+		reader := bufio.NewReader(logs)
+		for {
+			// 读取头部 8 字节
+			header := make([]byte, 8)
+			_, err := io.ReadFull(reader, header)
+			if err != nil {
+				if err != io.EOF {
+					h.logger.Error("Error reading log header", zap.Error(err))
+				}
+				break
+			}
+
+			// 获取消息大小
+			size := binary.BigEndian.Uint32(header[4:])
+			if size == 0 {
+				continue
+			}
+
+			// 读取实际的日志内容
+			content := make([]byte, size)
+			_, err = io.ReadFull(reader, content)
+			if err != nil {
+				if err != io.EOF {
+					h.logger.Error("Error reading log content", zap.Error(err))
+				}
+				break
+			}
+
+			// 写入日志内容
+			_, err = w.Write(content)
+			if err != nil {
+				h.logger.Error("Error writing log content", zap.Error(err))
+				break
+			}
+		}
+	}
 }

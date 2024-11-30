@@ -55,8 +55,8 @@ class TerminalManager {
             
             const name = document.createElement('span');
             name.className = 'container-name';
-            name.textContent = container.name;
-            name.title = container.name;
+            name.textContent = container.service;
+            name.title = container.service;
             
             const actions = document.createElement('div');
             actions.className = 'container-actions';
@@ -82,7 +82,7 @@ class TerminalManager {
                 // 添加提示信息
                 connectBtn.title = !this.isServerConnected ? '服务器未连接' : '容器未运行';
             } else {
-                connectBtn.onclick = () => this.connectToContainer(container.id, container.name);
+                connectBtn.onclick = () => this.connectToContainer(container.id, container.service);
             }
             
             const logsBtn = document.createElement('button');
@@ -95,7 +95,7 @@ class TerminalManager {
                 logsBtn.classList.add('disabled');
                 logsBtn.title = !this.isServerConnected ? '服务器未连接' : '容器未创建';
             } else {
-                logsBtn.onclick = () => this.showContainerLogs(container.id, container.name);
+                logsBtn.onclick = () => this.showContainerLogs(container.id, container.service);
             }
             
             actions.appendChild(healthStatus);
@@ -379,7 +379,7 @@ class TerminalManager {
         this.updateContainerList();
     }
 
-    showContainerLogs(containerId, containerName) {
+    showContainerLogs(containerId, serviceName) {
         // 先清理之前的 WebSocket 连接
         if (this.logWs) {
             this.logWs.close();
@@ -401,7 +401,12 @@ class TerminalManager {
             <div class="modal-content">
                 <div class="modal-header">
                     <h2 id="logs-title"></h2>
-                    <span class="close">&times;</span>
+                    <div class="modal-header-actions">
+                        <button class="download-logs-btn" title="Download logs">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <span class="close">&times;</span>
+                    </div>
                 </div>
                 <div class="modal-body">
                     <pre id="logs-content"></pre>
@@ -414,9 +419,10 @@ class TerminalManager {
         const logsContent = document.getElementById('logs-content');
         const title = document.getElementById('logs-title');
         const closeBtn = modal.querySelector('.close');
+        const downloadBtn = modal.querySelector('.download-logs-btn');
         
         logsContent.textContent = 'Loading logs...';
-        title.textContent = `${containerName} Logs`;
+        title.textContent = `${serviceName} Logs`;
         modal.style.display = 'block';
 
         // 自动滚动标志
@@ -472,6 +478,24 @@ class TerminalManager {
         };
 
         closeBtn.onclick = closeModal;
+        downloadBtn.onclick = async () => {
+            try {
+                const response = await fetch(`/container/logs/download?container=${containerId}`);
+                if (!response.ok) throw new Error('Failed to download logs');
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${serviceName}.log`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (error) {
+                console.error('Error downloading logs:', error);
+            }
+        };
 
         window.onclick = (event) => {
             if (event.target === modal) {

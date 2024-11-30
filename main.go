@@ -68,6 +68,7 @@ func main() {
 	router.HandleFunc("/containers", webHandler.ContainersHandler)
 	router.HandleFunc("/containers/{id}/logs", webHandler.ContainerLogsHandler)
 	router.HandleFunc("/container/logs", webHandler.ContainerLogsHandler)
+	router.HandleFunc("/container/logs/download", webHandler.DownloadLogsHandler)
 
 	// 静态文件服务
 	router.PathPrefix("/").Handler(http.FileServer(web.GetFileSystem()))
