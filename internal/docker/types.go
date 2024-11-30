@@ -16,12 +16,22 @@ type ServiceStatus struct {
 	LastCheck   time.Time       `json:"last_check"`
 }
 
+// HealthStatus 表示容器健康状态
+type HealthStatus struct {
+	Status        string    `json:"status"`       // 健康检查状态：none, starting, healthy, unhealthy
+	Log           []string  `json:"log"`          // 最近的健康检查日志
+	FailingStreak int       `json:"failing_streak"` // 连续失败次数
+	LastCheck     time.Time `json:"last_check"`    // 最后检查时间
+}
+
 // ContainerStatus 表示容器详细状态
 type ContainerStatus struct {
 	Info         ContainerInfo       `json:"info"`
 	Inspect      types.ContainerJSON `json:"inspect"`
 	PortsHealthy map[string]bool     `json:"ports_healthy"`
-	LastCheck    time.Time           `json:"last_check"`
+	LastCheck    time.Time          `json:"last_check"`
+	Health       *HealthStatus      `json:"health"`      // 添加健康状态
+	ExitCode     int               `json:"exit_code"`   // 添加退出码
 }
 
 // MonitorStatus 存储监控状态

@@ -197,6 +197,23 @@ func (m *Monitor) UpdateStatus() error {
 			portsHealthy[port.Port()] = m.checkPortHealth(container.ID, port.Port())
 		}
 
+		// 创建健康状态
+		var healthStatus *HealthStatus
+		if inspect.State.Health != nil {
+			healthStatus = &HealthStatus{
+				Status:        inspect.State.Health.Status,
+				FailingStreak: inspect.State.Health.FailingStreak,
+				LastCheck:     inspect.State.Health.Log[len(inspect.State.Health.Log)-1].End,
+			}
+			
+			// 获取最近的健康检查日志
+			logs := make([]string, 0, len(inspect.State.Health.Log))
+			for _, log := range inspect.State.Health.Log {
+				logs = append(logs, log.Output)
+			}
+			healthStatus.Log = logs
+		}
+
 		// 创建容器状态
 		containerStatus := &ContainerStatus{
 			Info: ContainerInfo{
@@ -209,6 +226,8 @@ func (m *Monitor) UpdateStatus() error {
 			},
 			PortsHealthy: portsHealthy,
 			LastCheck:    time.Now(),
+			Health:       healthStatus,
+			ExitCode:     inspect.State.ExitCode,
 		}
 
 		newContainers[container.ID] = containerStatus

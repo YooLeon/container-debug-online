@@ -71,7 +71,24 @@ class TerminalManager {
                 status.className = 'container-status disconnected';
                 status.textContent = 'Disconnected';
             } else {
-                status.textContent = container.status;
+                if (container.status.toLowerCase() === 'exited') {
+                    status.textContent = `${container.status} (${container.exit_code})`;
+                } else {
+                    status.textContent = container.status;
+                }
+            }
+            
+            if (container.health_status) {
+                const healthInfo = document.createElement('span');
+                healthInfo.className = `health-info ${container.health_status.status.toLowerCase()}`;
+                healthInfo.textContent = container.health_status.status;
+                healthInfo.title = `Last check: ${container.health_status.last_check}\nFailing streak: ${container.health_status.failing_streak}`;
+                
+                if (container.health_status.log && container.health_status.log.length > 0) {
+                    healthInfo.title += '\n\nLast check output:\n' + container.health_status.log[0];
+                }
+                
+                actions.appendChild(healthInfo);
             }
             
             const connectBtn = document.createElement('button');

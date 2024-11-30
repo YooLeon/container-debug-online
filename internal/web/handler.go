@@ -21,13 +21,15 @@ type Handler struct {
 }
 
 type ContainerResponse struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Status      string            `json:"status"`
-	Service     string            `json:"service"`
-	PortsHealth map[string]bool   `json:"ports_health"`
-	Healthy     bool              `json:"healthy"`
-	Labels      map[string]string `json:"labels"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Status          string            `json:"status"`
+	Service         string            `json:"service"`
+	PortsHealth     map[string]bool   `json:"ports_health"`
+	Healthy         bool              `json:"healthy"`
+	Labels          map[string]string `json:"labels"`
+	ExitCode        int              `json:"exit_code"`
+	HealthStatus    *docker.HealthStatus `json:"health_status"`
 }
 
 var upgrader = websocket.Upgrader{
@@ -48,10 +50,8 @@ func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 	config := h.monitor.GetComposeConfig()
 
 	var response []ContainerResponse
-	// 按照 docker-compose 中的服务顺序添加容器
 	for _, serviceName := range config.SortedServices {
 		if serviceStatus, ok := status.Services[serviceName]; ok {
-			// 直接使用 service 中的容器 ID 获取容器状态
 			if containerStatus, exists := status.Containers[serviceStatus.ContainerID]; exists {
 				healthy := true
 				for _, portHealthy := range containerStatus.PortsHealthy {
@@ -64,11 +64,14 @@ func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 				response = append(response, ContainerResponse{
 					ID:          serviceStatus.ContainerID,
 					Name:        containerStatus.Info.Name,
+					
 					Status:      containerStatus.Info.Status,
 					Service:     serviceName,
 					PortsHealth: containerStatus.PortsHealthy,
 					Healthy:     healthy && serviceStatus.Healthy,
 					Labels:      containerStatus.Info.Labels,
+					ExitCode:    containerStatus.ExitCode,
+					HealthStatus: containerStatus.Health,
 				})
 			} else {
 				// 服务存在但容器未找到
@@ -80,6 +83,8 @@ func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 					PortsHealth: make(map[string]bool),
 					Healthy:     false,
 					Labels:      make(map[string]string),
+					ExitCode:    0,
+					HealthStatus: nil,
 				})
 			}
 		} else {
@@ -92,6 +97,8 @@ func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 				PortsHealth: make(map[string]bool),
 				Healthy:     false,
 				Labels:      make(map[string]string),
+				ExitCode:    0,
+				HealthStatus: nil,
 			})
 		}
 	}
@@ -100,24 +107,57 @@ func (h *Handler) ContainersHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// HealthCheckResponse 定义健康检查响应结构
+type HealthCheckResponse struct {
+	Status      string                 `json:"status"`      // 总体状态：healthy/unhealthy
+	LastCheck   string                 `json:"last_check"`  // 最后检查时间
+	Services    map[string]ServiceHealth `json:"services"`    // 各服务的健康状态
+}
+
+// ServiceHealth 定义服务健康状态
+type ServiceHealth struct {
+	Status      string          `json:"status"`       // 服务状态
+	Healthy     bool            `json:"healthy"`      // 服务是否健康
+	PortsHealth map[string]bool `json:"ports_health"` // 端口健康状态
+	LastCheck   string          `json:"last_check"`   // 服务最后检查时间
+}
+
 func (h *Handler) HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	status := h.monitor.GetAllStatus()
 
 	// 检查所有服务和容器的健康状态
 	allHealthy := true
-	for _, service := range status.Services {
+	serviceHealths := make(map[string]ServiceHealth)
+
+	// 收集每个服务的健康状态
+	for serviceName, service := range status.Services {
+		// 获取容器状态
+		containerStatus, exists := status.Containers[service.ContainerID]
+		
+		serviceHealth := ServiceHealth{
+			Healthy:     service.Healthy,
+			LastCheck:   service.LastCheck.Format("2006-01-02 15:04:05"),
+			PortsHealth: make(map[string]bool),
+		}
+
+		if exists {
+			serviceHealth.Status = containerStatus.Info.Status
+			serviceHealth.PortsHealth = containerStatus.PortsHealthy
+		} else {
+			serviceHealth.Status = "not found"
+		}
+
 		if !service.Healthy {
 			allHealthy = false
-			break
 		}
+
+		serviceHealths[serviceName] = serviceHealth
 	}
 
-	response := struct {
-		Status    string `json:"status"`
-		LastCheck string `json:"last_check"`
-	}{
+	response := HealthCheckResponse{
 		Status:    "healthy",
 		LastCheck: status.LastUpdate.Format("2006-01-02 15:04:05"),
+		Services:  serviceHealths,
 	}
 
 	if !allHealthy {
@@ -260,7 +300,7 @@ func (h *Handler) ContainerLogsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 从容器标签中获取服务名称
+	// 从容器标签中取服务名称
 	serviceName := inspect.Config.Labels["com.docker.compose.service"]
 	if serviceName == "" {
 		h.logger.Error("Service name not found in container labels")
