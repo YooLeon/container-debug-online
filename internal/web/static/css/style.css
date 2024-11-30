@@ -280,43 +280,41 @@ body {
 
 .notification {
     position: fixed;
-    left: 20px;
     top: 20px;
-    padding: 8px 30px 8px 12px;
-    background-color: rgba(0, 0, 0, 0.7);
-    color: #fff;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 20px;
+    background-color: #2d2d2d;
+    color: #ffffff;
     border-radius: 4px;
-    font-size: 13px;
+    font-size: 14px;
     z-index: 1000;
     display: none;
-    max-width: fit-content;
-    line-height: 1.2;
+    min-width: 200px;
+    text-align: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    border: 1px solid #444;
+}
+
+.notification.error {
+    background-color: #c42b1c;
+    border-color: #d63c2e;
 }
 
 .notification.show {
     display: block;
+    animation: slideDown 0.3s ease-out;
 }
 
-.notification-close {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: #fff;
-    cursor: pointer;
-    padding: 0;
-    font-size: 14px;
-    opacity: 0.7;
-}
-
-.notification-close:hover {
-    opacity: 1;
-}
-
-.notification.error {
-    background-color: rgba(196, 43, 28, 0.9);
+@keyframes slideDown {
+    from {
+        transform: translateX(-50%) translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
 }
 
 .notification.info {
@@ -438,7 +436,7 @@ body {
     background-color: #1976d2;
 }
 
-/* 添���禁用状态样式 */
+/* 添加禁用状态样式 */
 .connect-btn.disabled {
     background-color: #666;
     cursor: not-allowed;
@@ -632,5 +630,11 @@ body {
 .download-logs-btn:hover {
     color: #333;
     background-color: rgba(0, 0, 0, 0.1);
+}
+
+/* 断开连接时的容器状态样式 */
+.container-status.disconnected {
+    background-color: #d63c2e;
+    color: white;
 }
 

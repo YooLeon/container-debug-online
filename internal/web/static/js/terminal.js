@@ -67,7 +67,12 @@ class TerminalManager {
             
             const status = document.createElement('span');
             status.className = `container-status ${container.status.toLowerCase()}`;
-            status.textContent = container.status;
+            if (!this.isServerConnected) {
+                status.className = 'container-status disconnected';
+                status.textContent = 'Disconnected';
+            } else {
+                status.textContent = container.status;
+            }
             
             const connectBtn = document.createElement('button');
             connectBtn.className = `action-btn connect-btn ${this.ws.has(container.id) ? 'active' : ''}`;
@@ -251,31 +256,34 @@ class TerminalManager {
         }
     }
 
-    showNotification(message) {
-        const notification = document.getElementById('notification');
-        if (!notification) return;
-
-        // 设置消息和关闭按钮
-        notification.innerHTML = `
-            ${message}
-            <button class="notification-close">&times;</button>
-        `;
+    showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type} show`;
+        notification.textContent = message;
         
-        // 显示通知
-        notification.style.display = 'block';
-
-        // 只添加关闭按钮的点击事件
-        const closeBtn = notification.querySelector('.notification-close');
-        if (closeBtn) {
-            closeBtn.onclick = () => {
-                notification.style.display = 'none';
-            };
+        // 移除旧的通知
+        const oldNotification = document.querySelector('.notification');
+        if (oldNotification) {
+            oldNotification.remove();
         }
+        
+        document.body.appendChild(notification);
+        
+        // 只有非错误类型的通知才自动消失
+        if (type !== 'error') {
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
+        }
+    }
 
-        // 移除自动关闭的定时器
-        if (this.notificationTimer) {
-            clearTimeout(this.notificationTimer);
-            this.notificationTimer = null;
+    // 添加一个新方法用于隐藏通知
+    hideNotification() {
+        const notification = document.querySelector('.notification');
+        if (notification) {
+            notification.classList.remove('show');
+            setTimeout(() => notification.remove(), 300);
         }
     }
 
@@ -548,7 +556,7 @@ class TerminalManager {
             } else if (!this.isServerConnected) {
                 // 服务恢复时
                 this.isServerConnected = true;
-                this.hideNotification();
+                this.hideNotification();  // 使用新方法隐藏通知
                 this.loadContainers();
             }
         } catch (error) {
@@ -559,7 +567,15 @@ class TerminalManager {
     handleServerDisconnect() {
         if (this.isServerConnected) {
             this.isServerConnected = false;
-            this.showNotification('服务器连接已断开');
+            
+            // 显示断开连接通知
+            this.showNotification('服务器连接已断开', 'error');
+            
+            // 更新所有容器状态为断开连接
+            this.containers.forEach(container => {
+                container.status = 'Disconnected';
+                container.healthy = false;
+            });
             
             // 禁用所有容器操作按钮
             const buttons = document.querySelectorAll('.action-btn');
